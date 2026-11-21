@@ -8,6 +8,7 @@ mod import;
 mod input;
 mod remote;
 mod theme;
+mod tmux;
 mod ui;
 mod util;
 

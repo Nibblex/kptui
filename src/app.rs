@@ -131,9 +131,15 @@ pub struct App {
 	pub slim_mode: bool,
 
 	pub remote: crate::remote::SyncState,
+	pub tmux_buffer: crate::tmux::TmuxBuffer,
 }
 
 impl App {
+	/// Whether Ctrl-y copies entry fields to a tmux paste buffer.
+	pub fn tmux_copy(&self) -> bool {
+		self.config.tmux_copy && crate::tmux::available()
+	}
+
 	fn compute_filtered(&self) -> Vec<usize> {
 		let query = Zeroizing::new(self.query.to_lowercase());
 
@@ -256,6 +262,7 @@ fn new_app(slim_mode: bool, password: Zeroizing<String>) -> App {
 		should_quit: false,
 		slim_mode,
 		remote: crate::remote::SyncState::default(),
+		tmux_buffer: crate::tmux::TmuxBuffer::default(),
 	}
 }
 
