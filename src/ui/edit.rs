@@ -5,9 +5,9 @@ use ratatui::{
 	text::{Line, Span},
 	widgets::{Clear, List, ListItem, Paragraph},
 };
+use std::borrow::Cow;
 use std::ops::Range;
 use std::time::{Duration, Instant};
-#[cfg(all(feature = "gui", target_os = "linux", target_env = "gnu"))]
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -23,20 +23,44 @@ const URL_INDEX: usize = 3;
 const TOTP_INDEX: usize = 4;
 const NOTES_INDEX: usize = 5;
 
-fn nav_help_items(slim_mode: bool) -> &'static [&'static str] {
-	if slim_mode {
-		&["[PgUpDn]", "[Enter]", "[^s]", "[Esc]"]
-	} else {
-		&["[PgUpDn] Scroll notes", "[Enter] Edit field", "[^s] Save", "[Esc] Close"]
+/// The Control-R hint. "Show" and "Hide" have the same width, so the help
+/// lines wrap the same either way.
+fn reveal_item(slim_mode: bool, show_password: bool) -> &'static str {
+	match (slim_mode, show_password) {
+		(true, _) => "[^r]",
+		(false, false) => "[^r] Show",
+		(false, true) => "[^r] Hide",
 	}
 }
 
-fn field_help_items(slim_mode: bool, multiline: bool) -> &'static [&'static str] {
+fn nav_help_items(slim_mode: bool, show_password: bool) -> Vec<&'static str> {
+	let reveal = reveal_item(slim_mode, show_password);
 	if slim_mode {
-		if multiline { &["[^s]", "[Esc]"] } else { &["[Enter]", "[Esc]"] }
+		vec!["[PgUpDn]", "[Enter]", reveal, "[^s]", "[Esc]"]
 	} else {
-		if multiline { &["[^s] Save field", "[Esc] Cancel"] } else { &["[Enter] Save field", "[Esc] Cancel"] }
+		vec!["[PgUpDn] Scroll notes", "[Enter] Edit field", reveal, "[^s] Save", "[Esc] Close"]
 	}
+}
+
+/// `password` is set when editing the password: whether it's shown.
+fn field_help_items(slim_mode: bool, multiline: bool, password: Option<bool>) -> Vec<&'static str> {
+	let mut items = match (slim_mode, multiline) {
+		(true, true) => vec!["[^s]", "[Esc]"],
+		(true, false) => vec!["[Enter]", "[Esc]"],
+		(false, true) => vec!["[^s] Save field", "[Esc] Cancel"],
+		(false, false) => vec!["[Enter] Save field", "[Esc] Cancel"],
+	};
+	if let Some(shown) = password {
+		items.insert(1, reveal_item(slim_mode, shown));
+	}
+	items
+}
+
+/// Hides a password behind asterisks. Every character becomes as many
+/// asterisks as it is wide, so the cursor and the visible part of the
+/// field editor line up just like with the password itself.
+fn masked(text: &str) -> String {
+	text.graphemes(true).map(|cluster| "*".repeat(cluster.width())).collect()
 }
 
 fn split_edit_area(area: Rect, help_line_count: usize) -> (Rect, Rect) {
@@ -47,7 +71,8 @@ fn split_edit_area(area: Rect, help_line_count: usize) -> (Rect, Rect) {
 
 #[cfg(all(feature = "gui", target_os = "linux", target_env = "gnu"))]
 pub(crate) fn field_at_position(area: Rect, slim_mode: bool, column: f64, row: u16) -> Option<(usize, bool)> {
-	let help_lines = wrap_help_items(nav_help_items(slim_mode), area.width);
+	// The help wraps the same whether the password is shown (see `reveal_item`).
+	let help_lines = wrap_help_items(&nav_help_items(slim_mode, false), area.width);
 	let (body, _) = split_edit_area(area, help_lines.len());
 	let inner = body.inner(Margin { horizontal: 0, vertical: 1 });
 	let field = usize::from(row.checked_sub(inner.y)?).min(NOTES_INDEX);
@@ -173,6 +198,8 @@ pub(crate) fn readonly_view<'a>(area: Rect, app: &'a App, field: usize, selectio
 	let text = match field {
 		NAME_INDEX => entry.name.as_str(),
 		USER_INDEX => entry.user.as_str(),
+		// A hidden password can't be selected: that would copy what isn't shown.
+		PASSWORD_INDEX if !app.show_password => return None,
 		PASSWORD_INDEX => entry.password.as_str(),
 		URL_INDEX => entry.url.as_str(),
 		TOTP_INDEX => app.totp_cache.as_ref()?.code.as_str(),
@@ -183,7 +210,7 @@ pub(crate) fn readonly_view<'a>(area: Rect, app: &'a App, field: usize, selectio
 		return None;
 	}
 
-	let help_lines = wrap_help_items(nav_help_items(app.slim_mode), area.width);
+	let help_lines = wrap_help_items(&nav_help_items(app.slim_mode, app.show_password), area.width);
 	let (body, _) = split_edit_area(area, help_lines.len());
 	let inner = body.inner(Margin { horizontal: 0, vertical: 1 });
 	let view = if field == NOTES_INDEX {
@@ -263,9 +290,13 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 	let placeholder = Style::new().fg(theme.text).bold();
 	let editing_style = Style::new().fg(theme.selection_fg).bg(theme.selection_bg);
 	let accent_style = Style::new().fg(theme.selection_fg).bg(theme.accent);
-	let help_items = if editing_field { field_help_items(app.slim_mode, selected == NOTES_INDEX) } else { nav_help_items(app.slim_mode) };
+	let help_items = if editing_field {
+		field_help_items(app.slim_mode, selected == NOTES_INDEX, (selected == PASSWORD_INDEX).then_some(app.show_password))
+	} else {
+		nav_help_items(app.slim_mode, app.show_password)
+	};
 	let help_width = full_area.width;
-	let help_lines = wrap_help_items(help_items, help_width);
+	let help_lines = wrap_help_items(&help_items, help_width);
 	let (list_area, help_area) = split_edit_area(full_area, help_lines.len());
 	let inner = list_area.inner(Margin { horizontal: 0, vertical: 1 });
 	let notes_label_y = inner.y.saturating_add(NOTES_INDEX as u16);
@@ -315,10 +346,11 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 	}
 	frame.render_stateful_widget(list, list_area, &mut list_state);
 
-	// Render the password separately from the List.
+	// Render the password separately from the List, hidden unless shown with Control-R.
 	if password_is_set {
 		let field_area = value_area(inner, PASSWORD_INDEX);
-		frame.render_widget(Paragraph::new(password).style(normal), field_area);
+		let shown = if app.show_password { Cow::Borrowed(password) } else { Cow::Owned(masked(password)) };
+		frame.render_widget(Paragraph::new(shown.as_ref()).style(normal), field_area);
 	}
 
 	// Render the current TOTP code separately from the List.
@@ -340,9 +372,12 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 		let available_width = field_area.width as usize;
 		let (visible, cursor_column) = editor.single_line_range(available_width);
 		let text = editor.text();
-		frame.render_widget(Paragraph::new(&text[visible.clone()]).style(super::input_style(theme)), field_area);
+		let hide = selected == PASSWORD_INDEX && !app.show_password;
+		let shown = if hide { Cow::Owned(masked(&text[visible.clone()])) } else { Cow::Borrowed(&text[visible.clone()]) };
+		frame.render_widget(Paragraph::new(shown.as_ref()).style(super::input_style(theme)), field_area);
 		let selection = editor.selection();
-		edit_view = Some(EditView::new(field_area, std::iter::once(visible), text, selection.as_ref()));
+		// Mouse selection would copy what isn't shown, so it's off while the password is hidden.
+		edit_view = (!hide).then(|| EditView::new(field_area, std::iter::once(visible), text, selection.as_ref()));
 
 		let cursor_x = field_area.x.saturating_add(u16::try_from(cursor_column).unwrap_or(u16::MAX));
 		if selection.is_none()
@@ -399,6 +434,30 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 	};
 	frame.render_widget(help, help_area);
 	edit_view
+}
+
+#[cfg(test)]
+mod mask_tests {
+	use super::{masked, nav_help_items, reveal_item};
+	use unicode_width::UnicodeWidthStr;
+
+	#[test]
+	fn masks_keep_the_width_of_the_password() {
+		assert_eq!(masked(""), "");
+		assert_eq!(masked("pässwörd"), "********");
+		assert_eq!(masked("猫z"), "***");
+		for text in ["correct horse", "猫z", "e\u{301}x"] {
+			assert_eq!(masked(text).width(), text.width(), "{text}");
+		}
+	}
+
+	#[test]
+	fn the_reveal_hint_has_the_same_width_shown_or_hidden() {
+		for slim in [false, true] {
+			assert_eq!(reveal_item(slim, false).width(), reveal_item(slim, true).width());
+			assert_eq!(nav_help_items(slim, false).concat().width(), nav_help_items(slim, true).concat().width());
+		}
+	}
 }
 
 #[cfg(all(test, feature = "gui", target_os = "linux", target_env = "gnu"))]
