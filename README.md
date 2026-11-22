@@ -16,7 +16,7 @@
   - KDF-Memory: `262144 KiB`
   - KDF-Iterations: `90` (!) [configurable]
   - KDF-Parallel: `4`
-* Stores: `Name` of the entry, `Username`, `Password`, `TOTP`, `URL` and `Notes` (only what it needs).
+* Stores: `Name` of the entry, `Username`, `Password`, `TOTP`, `URL` and `Notes` (only what it needs), and keeps additional attributes.
 * The Terminal User Interface is responsive and fully keyboard-driven, and a stand-alone static binary.
 * The Graphical User Interface runs on X11 and Wayland Linux and is even more secure in wiping all secrets.
   This binary (`kpgui`) is dynamically linked to C and graphical system libraries.
@@ -39,6 +39,13 @@
   - A vault without groups works just like before.
 * **Hidden passwords**: In an entry, the password shows as asterisks until Control-R shows it, and Control-R hides it again.
   This works while editing the password too, and it's hidden again whenever an entry gets opened or closed.
+* **Additional attributes**: The custom fields of an entry, like the "Additional attributes" in KeePassXC's
+  Advanced section, or the extra fields of KeePass2Android. The Attributes line of an entry lists their names,
+  and Enter on it opens them, with the selected value below the list:
+  - Enter edits the value (which can have several lines), Control-A adds an attribute,
+    Control-N renames it and Control-D deletes it.
+  - Protected values show as asterisks until Control-R shows them. Control-P protects or unprotects an attribute.
+  - Control-S saves the entry, and Esc goes back to it.
 * **TOTP codes**: Generates live 2FA codes from a stored seed and saves `otpauth://` URI.
   - Editable as: `SECRET [DIGITS [PERIOD]]` (`PERIOD` defaults to `30`, and `DIGITS` to `6`)
 * **Auto-exit**: The whole app can close itself automatically after a set period of inactivity
@@ -196,6 +203,8 @@ All fields are optional, as the above are the default values.
     it says so and leaves both alone.
 * Passwords are hidden on screen unless shown with Control-R, and hidden again for every entry that gets opened.
   In the GUI, a hidden password can't be selected with the mouse, so it can't end up in the Primary selection unseen.
+* Additional attributes keep their protection when saved, and protected values are hidden on screen until shown with Control-R.
+  The Attributes line of an entry only shows their names.
 * Using encrypted swap or zram (or no swap) increases security.
 * Booting with kernel cmdline option `init_on_free=1` causes every freed page to get zeroed.
 * On Linux, some extra hardening takes place in the operation of kptui.

@@ -64,6 +64,7 @@ pub fn import_csv(path: &Path) -> anyhow::Result<Vec<Entry>> {
 			url: get(&record, url_col),
 			totp: get(&record, totp_col),
 			notes: get(&record, notes_col),
+			attributes: Vec::new(),
 			date_last_modify: String::new(),
 		};
 
@@ -144,6 +145,7 @@ impl From<BitwardenItem> for Entry {
 			url: login.uris.into_iter().find_map(|u| u.uri).unwrap_or_default(),
 			totp: login.totp.unwrap_or_default(),
 			notes: item.notes.unwrap_or_default(),
+			attributes: Vec::new(),
 			date_last_modify: String::new(),
 		}
 	}
@@ -176,6 +178,7 @@ impl From<FlatEntry> for Entry {
 			url: f.url,
 			totp: f.totp,
 			notes: f.notes,
+			attributes: Vec::new(),
 			date_last_modify: String::new(),
 		}
 	}

@@ -24,6 +24,7 @@ fn add_entry(app: &mut App) {
 	app.confirm_delete = false;
 	app.confirm_exit = false;
 	app.show_password = false;
+	crate::input::attributes::close(app);
 	app.screen = Edit;
 }
 
@@ -43,6 +44,7 @@ pub fn preview_entry(app: &mut App) {
 	app.confirm_delete = false;
 	app.confirm_exit = false;
 	app.show_password = false;
+	crate::input::attributes::close(app);
 	app.screen = Edit;
 }
 
