@@ -9,6 +9,7 @@ use zeroize::Zeroize;
 use crate::app::{App, AttributeEdit};
 use crate::db::{Attribute, is_standard_field, sort_attributes};
 use crate::input::fieldedit::{EditAction, FieldEditor};
+use crate::tmux::Copied;
 
 /// Shows the attributes of the open entry.
 pub fn open(app: &mut App) {
@@ -72,6 +73,7 @@ pub fn handle_attributes_input(app: &mut App, key: KeyEvent) {
 					}
 				}
 				'p' => toggle_protection(app),
+				'y' if app.tmux_copy() => copy_selected(app),
 				'r' => app.show_protected = !app.show_protected,
 				'd' => {
 					if let Some(index) = selected(app) {
@@ -219,6 +221,28 @@ fn check_name(name: &str, attributes: &[Attribute], target: Option<usize>) -> Re
 		return Err(format!("There already is an attribute \"{name}\""));
 	}
 	Ok(name.to_string())
+}
+
+/// Copies the selected value to a tmux paste buffer, like Control-Y on an entry.
+fn copy_selected(app: &mut App) {
+	let Some(index) = selected(app) else {
+		return;
+	};
+	let Some(attribute) = app.edit_entry.as_ref().and_then(|entry| entry.attributes.get(index)) else {
+		return;
+	};
+	if attribute.value.is_empty() {
+		app.status = Some(format!("{} is empty, nothing copied", attribute.name));
+		return;
+	}
+	let clear_after = app.config.tmux_clear;
+	let result = app.tmux_buffer.copy(&attribute.value, clear_after);
+	let name = &attribute.name;
+	app.status = Some(match result {
+		Ok(Copied::Clearing) => format!("{name} copied to tmux, cleared in {}s", clear_after.as_secs()),
+		Ok(Copied::Untracked) => format!("{name} copied to tmux, but can't clear it"),
+		Err(err) => format!("{name} not copied: {err:#}"),
+	});
 }
 
 fn toggle_protection(app: &mut App) {

@@ -27,13 +27,13 @@ fn shown(text: &str, hide: bool) -> Cow<'_, str> {
 	if hide { Cow::Owned(hidden(text)) } else { Cow::Borrowed(text) }
 }
 
-fn help_items(slim_mode: bool, edit: Option<AttributeEdit>, protected: bool, show_protected: bool) -> Vec<&'static str> {
+fn help_items(slim_mode: bool, edit: Option<AttributeEdit>, protected: bool, show_protected: bool, tmux_copy: bool) -> Vec<&'static str> {
 	let reveal = match (slim_mode, show_protected) {
 		(true, _) => "[^r]",
 		(false, false) => "[^r] Show",
 		(false, true) => "[^r] Hide",
 	};
-	match (edit, slim_mode) {
+	let mut items = match (edit, slim_mode) {
 		(Some(AttributeEdit::Name(_)), true) => vec!["[Enter]", "[Esc]"],
 		(Some(AttributeEdit::Name(_)), false) => vec!["[Enter] Save name", "[Esc] Cancel"],
 		(Some(AttributeEdit::Value(_)), true) if protected => vec!["[^s]", reveal, "[Esc]"],
@@ -51,7 +51,11 @@ fn help_items(slim_mode: bool, edit: Option<AttributeEdit>, protected: bool, sho
 			"[^s] Save",
 			"[Esc] Back",
 		],
+	};
+	if tmux_copy && edit.is_none() {
+		items.insert(1, if slim_mode { "[^y]" } else { "[^y] Copy" });
 	}
+	items
 }
 
 pub fn draw_attributes(frame: &mut Frame, app: &mut App) -> Option<EditView> {
@@ -66,7 +70,7 @@ pub fn draw_attributes(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 
 	let selected = app.attribute_state.selected().and_then(|index| entry.attributes.get(index));
 	let protected = selected.is_some_and(|attribute| attribute.protected);
-	let help_lines = wrap_help_items(&help_items(app.slim_mode, app.attribute_edit, protected, app.show_protected), area.width);
+	let help_lines = wrap_help_items(&help_items(app.slim_mode, app.attribute_edit, protected, app.show_protected, app.tmux_copy()), area.width);
 	let help_height = u16::try_from(help_lines.len()).unwrap_or(u16::MAX);
 	let [list_area, value_area, help_area] = Layout::vertical([Constraint::Fill(1), Constraint::Fill(1), Constraint::Length(help_height)]).areas(area);
 
@@ -189,9 +193,11 @@ mod tests {
 
 	#[test]
 	fn shows_the_reveal_key_for_protected_values_only_while_editing() {
-		assert!(help_items(false, Some(AttributeEdit::Value(0)), true, false).contains(&"[^r] Show"));
-		assert!(!help_items(false, Some(AttributeEdit::Value(0)), false, false).contains(&"[^r] Show"));
-		assert!(help_items(false, None, true, true).contains(&"[^p] Unprotect"));
-		assert!(help_items(false, None, false, true).contains(&"[^r] Hide"));
+		assert!(help_items(false, Some(AttributeEdit::Value(0)), true, false, false).contains(&"[^r] Show"));
+		assert!(!help_items(false, Some(AttributeEdit::Value(0)), false, false, false).contains(&"[^r] Show"));
+		assert!(help_items(false, None, true, true, false).contains(&"[^p] Unprotect"));
+		assert!(help_items(false, None, false, true, false).contains(&"[^r] Hide"));
+		assert!(help_items(false, None, false, false, true).contains(&"[^y] Copy"));
+		assert!(!help_items(false, Some(AttributeEdit::Value(0)), false, false, true).contains(&"[^y] Copy"));
 	}
 }
