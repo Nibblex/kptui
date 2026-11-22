@@ -257,8 +257,8 @@ pub(crate) fn process_pending_save(app: &mut App) {
 
 	persist_entry(app, saved_idx);
 	reset_edit_state(app);
-	if let Some(filtered_pos) = app.filtered.iter().position(|&idx| idx == saved_idx) {
-		app.index_state.select(Some(filtered_pos));
+	if let Some(row) = app.row_of_entry(saved_idx) {
+		app.index_state.select(Some(row));
 		preview_entry(app);
 	}
 }
