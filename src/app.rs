@@ -280,7 +280,7 @@ pub fn maybe_auto_exit(app: &mut App) {
 	app.should_quit = true;
 }
 
-#[cfg(all(feature = "gui", target_os = "linux", target_env = "gnu"))]
+#[cfg(any(test, all(feature = "gui", target_os = "linux", target_env = "gnu")))]
 pub fn start(slim_mode: bool, password: Zeroizing<String>) -> App {
 	let mut app = new_app(slim_mode, password);
 	open_database(&mut app);
