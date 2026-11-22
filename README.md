@@ -5,7 +5,24 @@
 [![license](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/pepa65/kptui/blob/main/LICENSE.md)
 [![downloads](https://img.shields.io/crates/d/kptui.svg)](https://crates.io/crates/kptui)
 
-# kptui 0.39.0
+# kptui 0.39.0-nibblex.1
+## About this fork
+This is a fork of [pepa65/kptui](https://github.com/pepa65/kptui), which deliberately stays small.
+It adds what a KeePassXC user on a text console or over SSH may miss:
+* **Copy to tmux** (`Ctrl-y`): copies the selected field to a tmux paste buffer, cleared after a delay (opt-in).
+  Proposed upstream as [#1](https://github.com/pepa65/kptui/pull/1).
+* **Hidden passwords** (`Ctrl-r`): passwords show as asterisks until shown.
+  Proposed upstream as [#4](https://github.com/pepa65/kptui/pull/4).
+* **Remote vaults over SFTP**: `database = "sftp://host/path/vault.kdbx"`, used through a local copy,
+  with changes from other devices merged in when saving.
+* **Groups**: the Index browses the groups (folders) of the vault.
+* **Additional attributes**: the custom fields of KeePassXC's Advanced section, shown and editable.
+
+To install it: `cargo install --git https://github.com/Nibblex/kptui --branch nibblex --locked kptui`,
+or get a binary from the [releases](https://github.com/Nibblex/kptui/releases).
+`kptui version` shows the fork's version, like `0.39.0-nibblex.1`. Everything below describes this fork,
+but the download links in "Installing" are upstream's.
+
 **Highly secure TUI password manager for [KeePass](https://keepass.info/) KDBX vaults (includes Linux GUI)**
 * Compatible with the PassKeeper/KeePass KDBX `.kdb` and `.kdbx` file format.
 * By default, it preserves the database format of `KDBX4.0` or `KDBX4.1` files, which can be used by:

@@ -20,6 +20,8 @@ use std::process::ExitCode;
 use zeroize::Zeroizing;
 
 const BIN_NAME: &str = env!("CARGO_BIN_NAME");
+/// The version of this fork (https://github.com/Nibblex/kptui), after the upstream version.
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-nibblex.1");
 const USAGE: &str = concat!("Usage: ", env!("CARGO_BIN_NAME"), " [tui | slim | gui | version | help]");
 
 enum Command {
@@ -134,13 +136,13 @@ fn main() -> std::process::ExitCode {
 			} else {
 				env!("CARGO_PKG_DESCRIPTION")
 			};
-			println!("{BIN_NAME} {} - {description}", env!("CARGO_PKG_VERSION"));
+			println!("{BIN_NAME} {VERSION} - {description}");
 			println!("{USAGE}");
 			ExitCode::SUCCESS
 		}
 
 		Command::Version => {
-			println!("{BIN_NAME} {}", env!("CARGO_PKG_VERSION"));
+			println!("{BIN_NAME} {VERSION}");
 			ExitCode::SUCCESS
 		}
 
