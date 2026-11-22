@@ -249,9 +249,12 @@ fn reload(app: &mut App, db: Database) {
 	if app.screen != Screen::Edit {
 		return;
 	}
-	match viewed.and_then(|id| app.filtered.iter().position(|&index| app.entries[index].id == Some(id))) {
-		Some(position) => {
-			app.index_state.select(Some(position));
+	match viewed
+		.and_then(|id| app.entries.iter().position(|entry| entry.id == Some(id)))
+		.and_then(|index| app.row_of_entry(index))
+	{
+		Some(row) => {
+			app.index_state.select(Some(row));
 			crate::input::command::preview_entry(app);
 		}
 		None => crate::input::edit::reset_edit_state(app),

@@ -29,6 +29,14 @@
 * **Configurable KDF iterations**: If more or less paranoid (the default 90 is a high setting).
 * **Filtered search**: Start typing on the index screen to filter entries on Name & User,
   or on Name/User/Notes (toggled by control-C).
+* **Groups**: The Index browses the groups (folders) of the vault, like KeePass on the desktop:
+  the subgroups of the current group come first, with a `/` after their name, then its entries.
+  - Enter (or Right) opens a group, and Esc (or Left) goes back up. The title shows where you are, like `/Internet/Email`.
+  - Searching looks in all groups, and then shows the group of each entry instead of its date.
+  - New entries go into the current group, and the title of an entry shows its group.
+  - Esc first clears the search, then goes up a group, then quits.
+  - Groups can't be created, renamed or deleted in kptui, but saving keeps them and the entries in them.
+  - A vault without groups works just like before.
 * **TOTP codes**: Generates live 2FA codes from a stored seed and saves `otpauth://` URI.
   - Editable as: `SECRET [DIGITS [PERIOD]]` (`PERIOD` defaults to `30`, and `DIGITS` to `6`)
 * **Auto-exit**: The whole app can close itself automatically after a set period of inactivity
