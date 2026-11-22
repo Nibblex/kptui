@@ -66,8 +66,8 @@ pub fn handle_attributes_input(app: &mut App, key: KeyEvent) {
 	if key.modifiers.contains(KeyModifiers::CONTROL) {
 		if let KeyCode::Char(c) = key.code {
 			match c.to_ascii_lowercase() {
-				'a' => start_editing(app, AttributeEdit::Name(None)),
-				'n' => {
+				'n' => start_editing(app, AttributeEdit::Name(None)),
+				'e' => {
 					if let Some(index) = selected(app) {
 						start_editing(app, AttributeEdit::Name(Some(index)));
 					}

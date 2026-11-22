@@ -5,47 +5,50 @@
 [![license](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/pepa65/kptui/blob/main/LICENSE.md)
 [![downloads](https://img.shields.io/crates/d/kptui.svg)](https://crates.io/crates/kptui)
 
-# kptui 0.37.1
+# kptui 0.39.0
 **Highly secure TUI password manager for [KeePass](https://keepass.info/) KDBX vaults (includes Linux GUI)**
 * Compatible with the PassKeeper/KeePass KDBX `.kdb` and `.kdbx` file format.
-* It saves its database file to `KDBX4.1` format, which can be used by:
-  KeePassXC, KeePassDX/KeePass2Android, KeeWeb and KeePass2.
-* Fits in with the wider KeePass ecosystem.
+* By default, it preserves the database format of `KDBX4.0` or `KDBX4.1` files, which can be used by:
+  KeePassXC, KeePassDX/KeePass2Android, KeeWeb and KeePass2, so fits in with the wider KeePass ecosystem.
+  - On the Configuration screen, the version can be switched between `KDBX4.0` and `KDBX4.1`.
+  - If a file has a different `KDBX` format, it will save it to `KDBX4.1` format.
 * Very secure in its default configuration, impossible to brute-force (so unlocking takes a few seconds!).
-  - Writes to `KDBX4.1` hardened with Argon2.
-  - KDF-Memory: `262144 KiB`
+  The password is hardened with Argon2 [hardcoded]:
+  - KDF-Memory: `256 MiB` [configurable]
   - KDF-Iterations: `90` (!) [configurable]
-  - KDF-Parallel: `4`
-* Stores: `Name` of the entry, `Username`, `Password`, `TOTP`, `URL` and `Notes` (only what it needs), and keeps additional attributes.
+  - KDF-Parallel: `4` [hardcoded]
+* Stores: `Name` of the entry, `Username`, `Password`, `TOTP`, `URL` and `Notes` (and the `Last modified` time),
+  and keeps the groups and additional attributes.
 * The Terminal User Interface is responsive and fully keyboard-driven, and a stand-alone static binary.
-* The Graphical User Interface runs on X11 and Wayland Linux and is even more secure in wiping all secrets.
+* The Graphical User Interface version runs on X11 and Wayland Linux and is even more secure in wiping all secrets.
   This binary (`kpgui`) is dynamically linked to C and graphical system libraries.
 
 ## Features
-* **KDBX4.1 vaults**: Reads and writes standard `.kdbx` files, so you can open the same vault in
-  KeePassXC, KeePassDX/KeePass2Android, KeeWeb, KeePass2 or any other compatible client.
+* **KDBX4.1 vaults** (or `KDBX4.0`): Reads and writes standard `.kdbx` files, so you can open the same vault
+  in KeePassXC, KeePassDX/KeePass2Android, KeeWeb, KeePass2 or any other compatible client.
 * **Optional keyfile support**: Can unlocks vaults protected by a master password plus a keyfile,
-  but password-only vault is also supported.
-* **Configurable KDF iterations**: If more or less paranoid (the default 90 is a high setting).
+  but password-only vaults are also supported.
+* **Configurable KDF iterations**: If more or less paranoid (the default `90` is a high setting).
+* **Configurable KDF memory**: The default for new databases is `256 MiB` (requiring RAM usage for most CPUs).
 * **Filtered search**: Start typing on the index screen to filter entries on Name & User,
-  or on Name/User/Notes (toggled by control-C).
+  or on Name/User/Notes (toggled by `Ctrl-f`).
 * **Groups**: The Index browses the groups (folders) of the vault, like KeePass on the desktop:
   the subgroups of the current group come first, with a `/` after their name, then its entries.
-  - Enter (or Right) opens a group, and Esc (or Left) goes back up. The title shows where you are, like `/Internet/Email`.
+  - `Enter` (or `Right`) opens a group, and `Esc` (or `Left`) goes back up. The title shows where you are, like `/Internet/Email`.
   - Searching looks in all groups, and then shows the group of each entry instead of its date.
-  - New entries go into the current group, and the title of an entry shows its group.
-  - Esc first clears the search, then goes up a group, then quits.
+  - New entries (`Ctrl-n`) go into the current group, and the title of an entry shows its group.
+  - `Esc` first clears the search, then goes up a group, then quits.
   - Groups can't be created, renamed or deleted in kptui, but saving keeps them and the entries in them.
   - A vault without groups works just like before.
-* **Hidden passwords**: In an entry, the password shows as asterisks until Control-R shows it, and Control-R hides it again.
+* **Hidden passwords**: In an entry, the password shows as asterisks until `Ctrl-r` shows it, and `Ctrl-r` hides it again.
   This works while editing the password too, and it's hidden again whenever an entry gets opened or closed.
 * **Additional attributes**: The custom fields of an entry, like the "Additional attributes" in KeePassXC's
   Advanced section, or the extra fields of KeePass2Android. The Attributes line of an entry lists their names,
-  and Enter on it opens them, with the selected value below the list:
-  - Enter edits the value (which can have several lines), Control-A adds an attribute,
-    Control-N renames it and Control-D deletes it.
-  - Protected values show as asterisks until Control-R shows them. Control-P protects or unprotects an attribute.
-  - Control-S saves the entry, and Esc goes back to it.
+  and `Enter` on it opens them, with the selected value below the list:
+  - `Enter` edits the value (which can have several lines), `Ctrl-n` adds an attribute,
+    `Ctrl-e` renames it and `Ctrl-d` deletes it. With tmux copy on, `Ctrl-y` copies the value.
+  - Protected values show as asterisks until `Ctrl-r` shows them. `Ctrl-p` protects or unprotects an attribute.
+  - `Ctrl-s` saves the entry, and `Esc` goes back to it.
 * **TOTP codes**: Generates live 2FA codes from a stored seed and saves `otpauth://` URI.
   - Editable as: `SECRET [DIGITS [PERIOD]]` (`PERIOD` defaults to `30`, and `DIGITS` to `6`)
 * **Auto-exit**: The whole app can close itself automatically after a set period of inactivity
@@ -67,11 +70,11 @@
   - Changes that couldn't be uploaded stay in the local copy, and the Index title says "(not uploaded)".
     They get uploaded after the next unlock, or the next save, when the server can be reached.
   - Just opening and unlocking the database never writes to the server.
-* **Copy to tmux (opt-in)**: With `tmux_copy = true` and kptui running inside tmux, Control-Y on an entry
+* **Copy to tmux (opt-in)**: With `tmux_copy = true` and kptui running inside tmux, `Ctrl-y` on an entry
   copies the selected field (or the current TOTP code) to a tmux paste buffer, to paste with `prefix ]`.
   Useful on a text console or over SSH, where there is no system clipboard.
   The buffer is deleted after `tmux_clear` seconds, or earlier when kptui exits.
-* **Access Configuration from the app**: On the Login screen or the Index screen, give Control-C:
+* **Access Configuration from the app**: On the Login screen or the Index screen, give `Ctrl-c`:
   - Configuration file: `~/.config/kptui/config.toml`
   - Database (default: `~/.local/share/kptui/default.kdbx`, or an `sftp://` URL)
   - (Optional) keyfile
@@ -86,20 +89,30 @@
 
 ## Usage
 ```
-kptui 0.37.1 - TUI password manager for KeePass vaults
+kptui 0.39.0 - TUI password manager for KeePass vaults
 Usage:  kptui [slim | version | help]
 ```
 
 ## Installing
-### Download static single-binary
+### Download static single-binary `kptui` for amd64 Linux
 ```
-wget https://github.com/pepa65/kptui/releases/download/0.37.1/kptui
+wget https://github.com/pepa65/kptui/releases/download/0.39.0/kptui
 sudo mv kptui /usr/local/bin
 sudo chown root:root /usr/local/bin/kptui
 sudo chmod +x /usr/local/bin/kptui
 ```
 
-### Download
+### Download static single-binary `kptui` for Android
+```
+wget -O kptui https://github.com/pepa65/kptui/releases/download/0.39.0/kptui_android
+sudo chmod +x /usr/local/bin/kptui
+```
+
+### Download deb/rpm `kpgui` for amd64 Linux
+```
+wget https://github.com/pepa65/kptui/releases/download/0.39.0/kpgui_0.39.0-1_amd64.deb
+wget https://github.com/pepa65/kptui/releases/download/0.39.0/kpgui_0.39.0-1.x86_64.rpm
+```
 
 ### Install with cargo
 #### Static musl build from cloned repo
@@ -108,6 +121,8 @@ sudo chmod +x /usr/local/bin/kptui
 rustup target add x86_64-unknown-linux-musl
 cargo build --release
 ```
+
+For potentially much faster operation, replace `target-cpu=generic` with `target-cpu=native` in `.cargo/config.toml`!
 
 #### Dynamic build with cargo
 `cargo install --git https://github.com/pepa65/kptui`
@@ -133,19 +148,21 @@ It will be installed in `~/.cargo/bin/` which will need to be added to `PATH`!
   - Prompt to create a new database.
   - Prompt to set a master password.
   - But if a password is piped or directed in, this password will be used to create a new database with that password.
-  - If Control-C is given, then the configuration can be adjusted:
-    * Control-C from the **Login screen**: adjust the configuration file
-    * Control-C from the **Index screen** (after decrypting):
-      Also allow importing/exporting and re-encrypting the database with a different password or keyfile.
+  - If `Ctrl-c` is given, then the configuration can be adjusted:
+    * `Ctrl-c` from the **Login screen**: adjust the configuration file
+    * `Ctrl-c` from the **Index screen** (after decrypting):
+      Also allow importing/exporting and re-encrypting the database with a different password or keyfile,
+      or different KDF values for Itrerations and Memory.
 * Once unlocked, entries can be browsed, searched and opened from the Index screen.
 * To open an existing vault, set `database` in the config file at `~/.config/kptui/config.toml`.
-  - It can also be set on the Configuration screen that's accessible with Control-C from the Login screen.
-  - If a keyfile is required, that can also be set in the Config screen with Control-C in the Login screen.
+  - It can also be set on the Configuration screen that's accessible with `Ctrl-c` from the Login screen.
+  - If a keyfile is required, that can also be set in the Config screen with `Ctrl-c` in the Login screen.
 ```toml
 # Example
 database = "~/passwords.kdbx"
 keyfile = ""  # Empty means: no keyfile is set
 kdf_iterations = 90  # The default
+kdf_memory = "256M"  # 256 MiB; also accepts a byte count (unquoted!)
 ```
 * The interface requires a terminal dimensions of at least 44 colums by 24 rows (but 24x12 is still functional).
 * Run in smaller terminals with: `kptui slim` (at least 27 columns by 10 rows required, but 19x11 is still functional).
@@ -163,9 +180,10 @@ See `default_config.toml` in this repo:
 database = "~/.local/share/kptui/default.kdbx"  # Or a remote one, like "sftp://me@nas/~/vault.kdbx"
 keyfile = "~/.local/share/kptui/default.keyx"  # Optional (empty for password-only vaults)
 kdf_iterations = 90  # Can be lower if less paranoid about being brute-forced
+kdf_memory = "256M"  # 256 MiB, also accepts byte count (unquoted!)
 auto_exit = 300  # Seconds of inactivity before exiting the app
 theme = "melange_dark.toml"  # Theme from ~/.local/share/kptui/themes
-tmux_copy = false  # Inside tmux, Control-Y on an entry copies the selected field to a tmux paste buffer
+tmux_copy = false  # Inside tmux, Ctrl-y on an entry copies the selected field to a tmux paste buffer
 tmux_clear = 30  # Seconds before tmux deletes the copied value (at least 1)
 ```
 
@@ -201,9 +219,9 @@ All fields are optional, as the above are the default values.
     This needs tmux 3.2 or newer: with an older tmux, nothing is copied.
   - If another buffer gets created at the very same moment, kptui can't tell which one is its own:
     it says so and leaves both alone.
-* Passwords are hidden on screen unless shown with Control-R, and hidden again for every entry that gets opened.
+* Passwords are hidden on screen unless shown with `Ctrl-r`, and hidden again for every entry that gets opened.
   In the GUI, a hidden password can't be selected with the mouse, so it can't end up in the Primary selection unseen.
-* Additional attributes keep their protection when saved, and protected values are hidden on screen until shown with Control-R.
+* Additional attributes keep their protection when saved, and protected values are hidden on screen until shown with `Ctrl-r`.
   The Attributes line of an entry only shows their names.
 * Using encrypted swap or zram (or no swap) increases security.
 * Booting with kernel cmdline option `init_on_free=1` causes every freed page to get zeroed.

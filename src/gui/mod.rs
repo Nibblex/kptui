@@ -108,19 +108,25 @@ impl Session {
 		self.app.should_quit
 	}
 
-	fn pending_save(&self) -> bool {
-		self.app.pending_save || self.app.remote.pending
+	fn pending_work(&self) -> bool {
+		self.app.pending_unlock || self.app.pending_kdf_change.is_some() || self.app.pending_save.is_some() || self.app.remote.pending
 	}
 
-	fn save_if_pending(&mut self) -> bool {
-		if !self.pending_save() {
+	fn process_pending_work(&mut self) -> bool {
+		if self.redraw || !self.pending_work() {
 			return false;
 		}
-		if self.app.pending_save {
+		if self.app.pending_unlock {
+			crate::input::login::attempt_unlock(&mut self.app);
+		} else if self.app.pending_kdf_change.is_some() {
+			crate::input::settings::process_kdf_change(&mut self.app);
+		} else if self.app.pending_save.is_some() {
 			process_pending_save(&mut self.app);
 		} else {
 			crate::remote::process_pending(&mut self.app);
 		}
+		// After work that may have written the database, a remote one gets uploaded.
+		crate::remote::note_writes(&mut self.app);
 		self.redraw = true;
 		true
 	}

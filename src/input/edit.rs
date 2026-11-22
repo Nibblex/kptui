@@ -5,7 +5,7 @@ use keepass::config::DatabaseVersion;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::app::{App, Screen, TotpCache};
-use crate::db::{current_totp_code, parse_totp_edit_value, save_database, totp_edit_value};
+use crate::db::{current_totp_code, parse_totp_edit_value, save_database_as, totp_edit_value};
 use crate::input::command::preview_entry;
 use crate::input::fieldedit::{EditAction, FieldEditor};
 use crate::tmux::Copied;
@@ -18,16 +18,6 @@ const URL_INDEX: usize = 3;
 const TOTP_INDEX: usize = 4;
 const ATTRIBUTES_INDEX: usize = 5;
 const NOTES_INDEX: usize = 6;
-
-/// Saves the open entry (Control-S).
-pub(crate) fn request_save(app: &mut App) {
-	app.pending_save = true;
-	app.status = match app.kdbx.as_ref().map(|db| db.config.version.clone()) {
-		Some(DatabaseVersion::KDB4(1)) => Some("Saving...".to_string()),
-		Some(version) => Some(format!("Saving {version} to KDBX4.1...")),
-		None => Some("Saving...".to_string()),
-	};
-}
 
 fn is_reveal_key(key: &KeyEvent) -> bool {
 	matches!(key.code, KeyCode::Char('r' | 'R')) && key.modifiers.contains(KeyModifiers::CONTROL)
@@ -254,8 +244,7 @@ fn has_unsaved_changes(app: &App) -> bool {
 fn handle_exit_confirmation(app: &mut App, key: KeyCode) {
 	match crate::input::normalize_shortcut(key) {
 		KeyCode::Char('y') => {
-			app.confirm_exit = false;
-			close_edit(app);
+			request_save(app);
 		}
 		KeyCode::Char('n') => {
 			app.confirm_exit = false;
@@ -270,13 +259,14 @@ fn handle_exit_confirmation(app: &mut App, key: KeyCode) {
 	}
 }
 
-/// Answering "y" to "Save changes?": saves the entry to the database file,
-/// like Control-S does, before closing it.
-fn close_edit(app: &mut App) {
-	if let Some(index) = save_edit(app) {
-		persist_entry(app, index);
-	}
-	reset_edit_state(app);
+/// Saves the open entry (Control-S, also in the attributes), in the format of the file.
+pub(crate) fn request_save(app: &mut App) {
+	let version = match app.kdbx.as_ref().map(|db| &db.config.version) {
+		Some(DatabaseVersion::KDB4(0)) => DatabaseVersion::KDB4(0),
+		_ => DatabaseVersion::KDB4(1),
+	};
+	app.status = Some(format!("Saving as {version}..."));
+	app.pending_save = Some(version);
 }
 
 pub(crate) fn reset_edit_state(app: &mut App) {
@@ -317,37 +307,140 @@ fn save_edit(app: &mut App) -> Option<usize> {
 }
 
 pub(crate) fn process_pending_save(app: &mut App) {
-	if !app.pending_save {
-		return;
-	}
-
-	app.pending_save = false;
-	let Some(saved_idx) = save_edit(app) else {
-		reset_edit_state(app);
+	let Some(version) = app.pending_save.take() else {
 		return;
 	};
 
-	persist_entry(app, saved_idx);
+	if app.screen == Screen::Settings {
+		crate::input::settings::process_format_save(app, version);
+		return;
+	}
+
+	let close_after_save = app.confirm_exit;
+	let saved_idx = save_edit(app);
+	persist_entry(app, saved_idx, version);
 	reset_edit_state(app);
-	if let Some(row) = app.row_of_entry(saved_idx) {
+	if let Some(saved_idx) = saved_idx
+		&& let Some(row) = app.row_of_entry(saved_idx)
+	{
 		app.index_state.select(Some(row));
-		preview_entry(app);
+		if !close_after_save {
+			preview_entry(app);
+		}
 	}
 	crate::remote::note_writes(app);
 }
 
-fn persist_entry(app: &mut App, idx: usize) {
+fn persist_entry(app: &mut App, idx: Option<usize>, version: DatabaseVersion) {
 	let (Some(db), Some(key), Some(path)) = (app.kdbx.as_mut(), app.db_key.as_ref(), app.config.default_database.as_ref()) else {
 		app.status = Some("Not saved: database is locked".to_string());
 		return;
 	};
 
-	let Some(target) = app.entries.get_mut(idx) else {
-		return;
+	let entries = match idx.and_then(|idx| app.entries.get_mut(idx)) {
+		Some(entry) => std::slice::from_mut(entry),
+		None => &mut [],
 	};
 
-	match save_database(path, key, db, std::slice::from_mut(target)) {
-		Ok(()) => {}
+	let saved_message = format!("Saved as {version}");
+	match save_database_as(path, key, db, entries, version) {
+		Ok(()) => app.status = Some(saved_message),
 		Err(err) => app.status = Some(format!("Failed to save: {err:#}")),
+	}
+}
+
+#[cfg(test)]
+mod save_shortcut_tests {
+	use super::*;
+
+	#[test]
+	fn confirmed_exit_writes_changes_to_disk() {
+		let path = std::env::temp_dir().join(format!("kptui-confirm-save-{}.kdbx", std::process::id()));
+		let password = Zeroizing::new("save-test".to_string());
+		let (mut db, key, _) = crate::db::create_database(&path, 1, &password, None, crate::config::MIB).unwrap();
+		db.config.version = DatabaseVersion::KDB4(0);
+		let mut app = crate::app::start(false, Zeroizing::new(String::new()));
+		app.kdbx = Some(db);
+		app.db_key = Some(key);
+		app.config.default_database = Some(path.clone());
+
+		// Cover a new entry, then updates to the existing entry in both formats.
+		for minor in [0, 1] {
+			app.kdbx.as_mut().unwrap().config.version = DatabaseVersion::KDB4(minor);
+			app.screen = Screen::Edit;
+			app.edit_target = if app.entries.is_empty() { None } else { Some(0) };
+			let original = app.entries.first().cloned().unwrap_or_default();
+			let mut edited = original.clone();
+			edited.name = format!("Name {minor}");
+			edited.user = format!("User {minor}");
+			edited.password = format!("Password {minor}");
+			edited.url = format!("https://example.com/{minor}");
+			edited.totp = "otpauth://totp/?secret=JBSWY3DPEHPK3PXP&digits=6&period=30".to_string();
+			edited.notes = format!("Notes {minor}\nSecond line");
+			app.edit_original = Some(original);
+			app.edit_entry = Some(edited.clone());
+
+			handle_edit_input(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+			assert!(app.confirm_exit);
+			handle_edit_input(&mut app, KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+			assert!(app.confirm_exit);
+			assert_eq!(app.pending_save, Some(DatabaseVersion::KDB4(minor)));
+			assert_eq!(app.status, Some(format!("Saving as KDBX4.{minor}...")));
+			process_pending_save(&mut app);
+			assert!(app.screen == Screen::Index);
+			assert!(!app.confirm_exit);
+			assert_eq!(app.status, Some(format!("Saved as KDBX4.{minor}")));
+
+			let (reopened, _, entries) = crate::db::unlock_database(&path, &password, None).unwrap();
+			assert_eq!(reopened.config.version, DatabaseVersion::KDB4(minor));
+			assert_eq!(entries.len(), 1);
+			let entry = &entries[0];
+			assert_eq!(entry.name, edited.name);
+			assert_eq!(entry.user, edited.user);
+			assert_eq!(entry.password, edited.password);
+			assert_eq!(entry.url, edited.url);
+			assert_eq!(entry.totp, edited.totp);
+			assert_eq!(entry.notes, edited.notes);
+		}
+		std::fs::remove_file(path).unwrap();
+	}
+
+	#[test]
+	fn saves_database_when_selected_entry_is_absent() {
+		let path = std::env::temp_dir().join(format!("kptui-save-without-entry-{}.kdbx", std::process::id()));
+		let password = Zeroizing::new("save-test".to_string());
+		let (mut db, key, _) = crate::db::create_database(&path, 1, &password, None, crate::config::DEFAULT_KDF_MEMORY).unwrap();
+		db.root_mut().add_entry().set_unprotected(keepass::db::fields::TITLE, "Existing entry");
+		let mut app = crate::app::start(false, Zeroizing::new(String::new()));
+		app.kdbx = Some(db);
+		app.db_key = Some(key);
+		app.config.default_database = Some(path.clone());
+
+		for minor in [0, 1] {
+			if minor == 1 {
+				app.edit_entry = Some(crate::db::Entry::default());
+				app.edit_target = Some(100);
+			}
+			app.pending_save = Some(DatabaseVersion::KDB4(minor));
+			process_pending_save(&mut app);
+			assert_eq!(app.status, Some(format!("Saved as KDBX4.{minor}")));
+			let (db, _, entries) = crate::db::unlock_database(&path, &password, None).unwrap();
+			assert_eq!(db.config.version, DatabaseVersion::KDB4(minor));
+			assert_eq!(entries.len(), 1);
+			assert_eq!(entries[0].name, "Existing entry");
+		}
+		std::fs::remove_file(path).unwrap();
+	}
+
+	#[test]
+	fn save_shortcut_preserves_the_current_format() {
+		let mut app = crate::app::start(false, Zeroizing::new(String::new()));
+		for minor in [0, 1] {
+			let mut db = keepass::Database::new();
+			db.config.version = DatabaseVersion::KDB4(minor);
+			app.kdbx = Some(db);
+			handle_edit_input(&mut app, KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+			assert_eq!(app.pending_save, Some(DatabaseVersion::KDB4(minor)));
+		}
 	}
 }

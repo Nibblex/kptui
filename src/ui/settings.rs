@@ -11,7 +11,9 @@ use ratatui::{
 use super::edit::EditView;
 use crate::app::{App, ExportStep, ImportStep};
 use crate::input::fieldedit::FieldEditor;
-use crate::input::settings::{AUTO_EXIT_ROW, DATABASE_ROW, ITERATIONS_ROW, KEYFILE_ROW, LOCKED_ROW_COUNT, TMUX_CLEAR_ROW, UNLOCKED_ROW_COUNT};
+use crate::input::settings::{
+	AUTO_EXIT_ROW, CHANGE_PASSWORD_ROW, FORMAT_ROW, LOCKED_ROW_COUNT, TMUX_CLEAR_ROW, UNLOCKED_ROW_COUNT, format_save_target, settings_row,
+};
 use crate::util::wrap_help_items;
 use unicode_width::UnicodeWidthStr;
 
@@ -22,7 +24,7 @@ fn centered_cursor_x(input_area: Rect, typed_len: usize) -> u16 {
 	}
 
 	let width = inner.width as usize;
-	let offset = if typed_len < width { (width - typed_len) / 2 + typed_len } else { width - 1 };
+	let offset = if typed_len < width { width / 2 - typed_len / 2 + typed_len } else { width - 1 };
 	inner.x.saturating_add(offset.min(width - 1) as u16)
 }
 
@@ -67,7 +69,7 @@ fn draw_main_settings(frame: &mut Frame, app: &mut App) {
 	let full_area = frame.area();
 
 	let editing_field = app.editing_field;
-	let selected = app.settings_state.selected().unwrap_or(0);
+	let selected = settings_row(app, app.settings_state.selected().unwrap_or(0));
 
 	let help_items = if editing_field { field_help_items(app.slim_mode) } else { nav_help_items(app.slim_mode) };
 
@@ -87,15 +89,18 @@ fn draw_main_settings(frame: &mut Frame, app: &mut App) {
 	let placeholder = Style::new().fg(theme.text).bold();
 	let editing_style = Style::new().fg(theme.selection_fg).bg(theme.selection_bg);
 	let label_style = Style::new().fg(theme.header).bold();
-	const LABELS: [&str; UNLOCKED_ROW_COUNT] = [
+	let format_label = format!("Save as {}", format_save_target(app));
+	let labels = [
 		"Database",
 		"Keyfile (optional)",
+		format_label.as_str(),
 		"KDF iterations (time cost)",
+		"KDF memory (MiB)",
+		"Change master password",
 		"Auto-exit (seconds)",
 		"Theme",
 		"tmux copy (Ctrl-y)",
 		"tmux clear (seconds)",
-		"Change master password",
 		"Import data",
 		"Export data",
 	];
@@ -113,33 +118,43 @@ fn draw_main_settings(frame: &mut Frame, app: &mut App) {
 	let values = [
 		app.config.database_label().map_or_else(|| Span::styled("(not set)", placeholder), |label| Span::styled(label, normal)),
 		path_value(app.config.keyfile.as_deref()),
+		Span::styled("[Enter] to save", placeholder),
 		Span::styled(app.config.kdf_iterations.to_string(), normal),
+		Span::styled((app.config.kdf_memory as f64 / crate::config::MIB as f64).to_string(), normal),
+		Span::styled("[Enter] to change", placeholder),
 		Span::styled(app.config.auto_exit.as_secs().to_string(), normal),
 		theme_value,
 		Span::styled(if app.config.tmux_copy { "on" } else { "off" }, normal),
 		Span::styled(app.config.tmux_clear.as_secs().to_string(), normal),
-		Span::styled("[Enter] to change", placeholder),
 		Span::styled("[Enter] to import", placeholder),
 		Span::styled("[Enter] to export", placeholder),
 	];
 	let row_count = if app.login_settings { LOCKED_ROW_COUNT } else { UNLOCKED_ROW_COUNT };
-	let items = LABELS.into_iter().zip(values).take(row_count).enumerate().map(|(row, (label, value))| {
-		let style = if selected == row { editing_style } else { label_style };
-		ListItem::new(Line::from(vec![Span::styled(label, style), Span::styled(": ", normal), value]))
-	});
+	let items = labels
+		.into_iter()
+		.zip(values)
+		.enumerate()
+		.filter(|(row, _)| !app.login_settings || !matches!(*row, FORMAT_ROW | CHANGE_PASSWORD_ROW))
+		.take(row_count)
+		.map(|(row, (label, value))| {
+			let style = if selected == row { editing_style } else { label_style };
+			ListItem::new(Line::from(vec![Span::styled(label, style), Span::styled(": ", normal), value]))
+		});
 
-	let section = super::section("Configuration ", theme, 0);
+	let version = app.kdbx.as_ref().map(|db| db.config.version.to_string()).or_else(|| app.db_version.clone());
+	let title = version.map_or_else(|| "Configuration ".to_string(), |version| format!("Configuration {version} "));
+	let section = super::section(&title, theme, 0);
 	let list_area = section.inner(vertical[0]);
 	let list = List::new(items).block(section);
 	frame.render_stateful_widget(list, vertical[0], &mut app.settings_state);
 
 	if editing_field
-		&& matches!(selected, DATABASE_ROW | KEYFILE_ROW | ITERATIONS_ROW | AUTO_EXIT_ROW | TMUX_CLEAR_ROW)
+		&& (selected <= AUTO_EXIT_ROW || selected == TMUX_CLEAR_ROW)
 		&& let Some(editor) = app.field_editor.as_ref()
-		&& let Some(row) = selected.checked_sub(app.settings_state.offset())
+		&& let Some(row) = app.settings_state.selected().unwrap_or(0).checked_sub(app.settings_state.offset())
 		&& row < usize::from(list_area.height)
 	{
-		let offset = (LABELS[selected].width() + 2) as u16;
+		let offset = (labels[selected].width() + 2) as u16;
 		let field_area = Rect {
 			x: list_area.x.saturating_add(offset),
 			y: list_area.y.saturating_add(row as u16),
@@ -316,9 +331,10 @@ fn draw_import(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 
 	let input_area = horizontal[1];
 	let view = match app.import_step {
-		ImportStep::Path => app.field_editor.as_ref().map(|editor| {
-			draw_path_input(frame, input_area, " Import from file (.kdbx/.csv/.json) ", editor, &app.theme)
-		}),
+		ImportStep::Path => app
+			.field_editor
+			.as_ref()
+			.map(|editor| draw_path_input(frame, input_area, " Import from file (.kdbx/.csv/.json) ", editor, &app.theme)),
 		ImportStep::KdbxPassword => {
 			let masked = super::mask_password(&app.import_kdbx_password_buffer);
 			let cursor_x = centered_cursor_x(input_area, masked.width());
@@ -372,9 +388,10 @@ fn draw_export(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 
 	let input_area = horizontal[1];
 	let view = match app.export_step {
-		ExportStep::Path => app.field_editor.as_ref().map(|editor| {
-			draw_path_input(frame, input_area, " Export to file (.kdbx/.csv/.json) ", editor, &app.theme)
-		}),
+		ExportStep::Path => app
+			.field_editor
+			.as_ref()
+			.map(|editor| draw_path_input(frame, input_area, " Export to file (.kdbx/.csv/.json) ", editor, &app.theme)),
 		ExportStep::Confirm => {
 			let section = super::section(" Confirm export ", &app.theme, 1);
 			let path = app.pending_export_path.as_deref().map(|path| path.to_string_lossy()).unwrap_or_default();

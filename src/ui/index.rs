@@ -22,10 +22,10 @@ pub(crate) fn header_height(slim_mode: bool) -> u16 {
 
 fn help_items(slim_mode: bool, esc: &str) -> &'static [&'static str] {
 	match (slim_mode, esc) {
-		(true, _) => &["[^s]", "[Enter]", "[Esc]", "[^a]", "[^d]", "[^c]"],
-		(false, "Clear") => &["[^s] Search", "[Enter] View", "[Esc] Clear", "[^a] Add", "[^d] Delete", "[^c] Config"],
-		(false, "Up") => &["[^s] Search", "[Enter] View", "[Esc] Up", "[^a] Add", "[^d] Delete", "[^c] Config"],
-		(false, _) => &["[^s] Search", "[Enter] View", "[Esc] Quit", "[^a] Add", "[^d] Delete", "[^c] Config"],
+		(true, _) => &["[^f]", "[Enter]", "[Esc]", "[^n]", "[^d]", "[^c]"],
+		(false, "Clear") => &["[^f] Filter", "[Enter] View", "[Esc] Clear", "[^n] New", "[^d] Delete", "[^c] Config"],
+		(false, "Up") => &["[^f] Filter", "[Enter] View", "[Esc] Up", "[^n] New", "[^d] Delete", "[^c] Config"],
+		(false, _) => &["[^f] Filter", "[Enter] View", "[Esc] Quit", "[^n] New", "[^d] Delete", "[^c] Config"],
 	}
 }
 

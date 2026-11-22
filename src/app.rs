@@ -21,7 +21,7 @@ use crate::input::SECRET_CAP;
 use crate::input::edit::{handle_edit_input, process_pending_save};
 use crate::input::fieldedit::FieldEditor;
 use crate::input::index::handle_index_input;
-use crate::input::login::{attempt_unlock, create_database_with_password, database_missing, handle_login_input};
+use crate::input::login::{attempt_unlock, create_database_with_password, database_missing, handle_login_input, request_unlock};
 use crate::input::settings::handle_settings_input;
 use crate::theme::{Theme, load_theme};
 use crate::ui::edit::{EditView, draw_edit};
@@ -76,6 +76,12 @@ pub struct TotpCache {
 	pub expires: Instant,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KdfChange {
+	Iterations(u64),
+	Memory(u64),
+}
+
 pub struct App {
 	pub screen: Screen,
 	pub login_settings: bool,
@@ -98,7 +104,9 @@ pub struct App {
 	pub editing_field: bool,
 	pub field_editor: Option<FieldEditor>,
 	pub field_editor_scroll: usize,
-	pub pending_save: bool,
+	pub pending_save: Option<keepass::config::DatabaseVersion>,
+	pub pending_unlock: bool,
+	pub pending_kdf_change: Option<KdfChange>,
 	pub confirm_delete: bool,
 	pub confirm_exit: bool,
 	/// Whether the password of the open entry is shown (Control-R), instead of asterisks.
@@ -333,7 +341,9 @@ fn new_app(slim_mode: bool, password: Zeroizing<String>) -> App {
 		editing_field: false,
 		field_editor: None,
 		field_editor_scroll: 0,
-		pending_save: false,
+		pending_save: None,
+		pending_unlock: false,
+		pending_kdf_change: None,
 		confirm_delete: false,
 		confirm_exit: false,
 		show_password: false,
@@ -369,7 +379,7 @@ fn open_database(app: &mut App) {
 		if database_missing(app) {
 			create_database_with_password(app);
 		} else {
-			attempt_unlock(app);
+			request_unlock(app);
 		}
 	}
 	crate::remote::note_writes(app);
@@ -438,12 +448,20 @@ pub fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, slim_mode: boo
 				})?;
 			}
 		}
-		if app.pending_save {
-			process_pending_save(&mut app);
+		// After work that may have written the database, a remote one gets uploaded.
+		if app.pending_unlock {
+			attempt_unlock(&mut app);
+			crate::remote::note_writes(&mut app);
 			continue;
 		}
-		if app.pending_save {
+		if app.pending_kdf_change.is_some() {
+			crate::input::settings::process_kdf_change(&mut app);
+			crate::remote::note_writes(&mut app);
+			continue;
+		}
+		if app.pending_save.is_some() {
 			process_pending_save(&mut app);
+			crate::remote::note_writes(&mut app);
 			continue;
 		}
 		if app.remote.pending {

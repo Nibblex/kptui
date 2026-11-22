@@ -40,11 +40,11 @@ fn help_items(slim_mode: bool, edit: Option<AttributeEdit>, protected: bool, sho
 		(Some(AttributeEdit::Value(_)), true) => vec!["[^s]", "[Esc]"],
 		(Some(AttributeEdit::Value(_)), false) if protected => vec!["[^s] Save value", reveal, "[Esc] Cancel"],
 		(Some(AttributeEdit::Value(_)), false) => vec!["[^s] Save value", "[Esc] Cancel"],
-		(None, true) => vec!["[Enter]", "[^a]", "[^n]", "[^p]", reveal, "[^d]", "[^s]", "[Esc]"],
+		(None, true) => vec!["[Enter]", "[^n]", "[^e]", "[^p]", reveal, "[^d]", "[^s]", "[Esc]"],
 		(None, false) => vec![
 			"[Enter] Edit",
-			"[^a] Add",
-			"[^n] Rename",
+			"[^n] New",
+			"[^e] Rename",
 			if protected { "[^p] Unprotect" } else { "[^p] Protect" },
 			reveal,
 			"[^d] Delete",
@@ -166,7 +166,7 @@ pub fn draw_attributes(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 				frame.render_widget(Paragraph::new(lines).style(normal), inner);
 			}
 			Some(_) => frame.render_widget(Paragraph::new(Span::styled("(empty)", placeholder)), inner),
-			None => frame.render_widget(Paragraph::new(Span::styled("[^a] adds an attribute", placeholder)), inner),
+			None => frame.render_widget(Paragraph::new(Span::styled("[^n] adds an attribute", placeholder)), inner),
 		},
 	}
 

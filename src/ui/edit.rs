@@ -39,7 +39,7 @@ fn nav_help_items(slim_mode: bool, tmux_copy: bool, show_password: bool) -> Vec<
 	let mut items = if slim_mode {
 		vec!["[PgUpDn]", "[Enter]", reveal, "[^s]", "[Esc]"]
 	} else {
-		vec!["[PgUpDn] Scroll notes", "[Enter] Edit field", reveal, "[^s] Save", "[Esc] Close"]
+		vec!["[PgUpDn] Scroll notes", "[Enter] Edit", reveal, "[^s] Save", "[Esc] Close"]
 	};
 	if tmux_copy {
 		items.insert(2, if slim_mode { "[^y]" } else { "[^y] Copy" });

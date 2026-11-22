@@ -5,13 +5,13 @@ use crate::input::fieldedit::FieldEditor;
 
 pub fn handle_shortcut(app: &mut App, c: char) {
 	match c {
-		'a' => add_entry(app),
+		'n' => new_entry(app),
 		'c' => open_settings(app),
 		_ => {}
 	}
 }
 
-fn add_entry(app: &mut App) {
+fn new_entry(app: &mut App) {
 	// New entries go into the group being browsed.
 	let mut entry = Entry::default();
 	entry.group = app.group;
