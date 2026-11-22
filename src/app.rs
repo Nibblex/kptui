@@ -92,6 +92,8 @@ pub struct App {
 	pub pending_save: bool,
 	pub confirm_delete: bool,
 	pub confirm_exit: bool,
+	/// Whether the password of the open entry is shown (Control-R), instead of asterisks.
+	pub show_password: bool,
 	pub entries: Vec<Entry>,
 	/// The entries on the Index, below `group_rows`.
 	pub filtered: Vec<usize>,
@@ -316,6 +318,7 @@ fn new_app(slim_mode: bool, password: Zeroizing<String>) -> App {
 		pending_save: false,
 		confirm_delete: false,
 		confirm_exit: false,
+		show_password: false,
 		entries: Vec::new(),
 		filtered: Vec::new(),
 		groups: Vec::new(),

@@ -37,6 +37,8 @@
   - Esc first clears the search, then goes up a group, then quits.
   - Groups can't be created, renamed or deleted in kptui, but saving keeps them and the entries in them.
   - A vault without groups works just like before.
+* **Hidden passwords**: In an entry, the password shows as asterisks until Control-R shows it, and Control-R hides it again.
+  This works while editing the password too, and it's hidden again whenever an entry gets opened or closed.
 * **TOTP codes**: Generates live 2FA codes from a stored seed and saves `otpauth://` URI.
   - Editable as: `SECRET [DIGITS [PERIOD]]` (`PERIOD` defaults to `30`, and `DIGITS` to `6`)
 * **Auto-exit**: The whole app can close itself automatically after a set period of inactivity
@@ -192,6 +194,8 @@ All fields are optional, as the above are the default values.
     This needs tmux 3.2 or newer: with an older tmux, nothing is copied.
   - If another buffer gets created at the very same moment, kptui can't tell which one is its own:
     it says so and leaves both alone.
+* Passwords are hidden on screen unless shown with Control-R, and hidden again for every entry that gets opened.
+  In the GUI, a hidden password can't be selected with the mouse, so it can't end up in the Primary selection unseen.
 * Using encrypted swap or zram (or no swap) increases security.
 * Booting with kernel cmdline option `init_on_free=1` causes every freed page to get zeroed.
 * On Linux, some extra hardening takes place in the operation of kptui.
