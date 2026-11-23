@@ -17,9 +17,9 @@ use crate::app::{App, AttributeEdit};
 use crate::input::fieldview::{cursor_position, wrap_ranges};
 use crate::util::wrap_help_items;
 
-/// Hides a protected value behind asterisks, as wide as the text.
+/// Hides a protected value behind the same dots as a password, as wide as the text.
 fn hidden(text: &str) -> String {
-	text.graphemes(true).map(|cluster| "*".repeat(cluster.width())).collect()
+	text.graphemes(true).map(|cluster| super::DOT.repeat(cluster.width())).collect()
 }
 
 /// Shows a protected value hidden, unless shown with Control-R.
@@ -187,7 +187,7 @@ mod tests {
 
 	#[test]
 	fn hidden_values_keep_their_width() {
-		assert_eq!(hidden("1234"), "****");
+		assert_eq!(hidden("1234"), "••••");
 		assert_eq!(hidden("猫z").width(), "猫z".width());
 	}
 

@@ -109,7 +109,7 @@ pub struct App {
 	pub pending_kdf_change: Option<KdfChange>,
 	pub confirm_delete: bool,
 	pub confirm_exit: bool,
-	/// Whether the password of the open entry is shown (Control-R), instead of asterisks.
+	/// Whether the password of the open entry is shown (Control-R), instead of dots.
 	pub show_password: bool,
 
 	/// The additional attributes of the open entry are shown.
@@ -117,7 +117,7 @@ pub struct App {
 	pub attribute_state: ListState,
 	pub attribute_edit: Option<AttributeEdit>,
 	pub attribute_scroll: usize,
-	/// Whether protected attribute values are shown, instead of asterisks.
+	/// Whether protected attribute values are shown, instead of dots.
 	pub show_protected: bool,
 	pub confirm_attribute_delete: bool,
 	pub entries: Vec<Entry>,

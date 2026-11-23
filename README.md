@@ -11,7 +11,7 @@ This is a fork of [pepa65/kptui](https://github.com/pepa65/kptui), which deliber
 It adds what a KeePassXC user on a text console or over SSH may miss:
 * **Copy to tmux** (`Ctrl-y`): copies the selected field to a tmux paste buffer, cleared after a delay (opt-in).
   Proposed upstream as [#1](https://github.com/pepa65/kptui/pull/1).
-* **Hidden passwords** (`Ctrl-r`): passwords show as asterisks until shown.
+* **Hidden passwords** (`Ctrl-r`): passwords show as dots until shown.
   Proposed upstream as [#4](https://github.com/pepa65/kptui/pull/4).
 * **Remote vaults over SFTP**: `database = "sftp://host/path/vault.kdbx"`, used through a local copy,
   with changes from other devices merged in when saving.
@@ -57,14 +57,14 @@ but the download links in "Installing" are upstream's.
   - `Esc` first clears the search, then goes up a group, then quits.
   - Groups can't be created, renamed or deleted in kptui, but saving keeps them and the entries in them.
   - A vault without groups works just like before.
-* **Hidden passwords**: In an entry, the password shows as asterisks until `Ctrl-r` shows it, and `Ctrl-r` hides it again.
+* **Hidden passwords**: In an entry, the password shows as dots until `Ctrl-r` shows it, and `Ctrl-r` hides it again.
   This works while editing the password too, and it's hidden again whenever an entry gets opened or closed.
 * **Additional attributes**: The custom fields of an entry, like the "Additional attributes" in KeePassXC's
   Advanced section, or the extra fields of KeePass2Android. The Attributes line of an entry lists their names,
   and `Enter` on it opens them, with the selected value below the list:
   - `Enter` edits the value (which can have several lines), `Ctrl-n` adds an attribute,
     `Ctrl-e` renames it and `Ctrl-d` deletes it. With tmux copy on, `Ctrl-y` copies the value.
-  - Protected values show as asterisks until `Ctrl-r` shows them. `Ctrl-p` protects or unprotects an attribute.
+  - Protected values show as dots until `Ctrl-r` shows them. `Ctrl-p` protects or unprotects an attribute.
   - `Ctrl-s` saves the entry, and `Esc` goes back to it.
 * **TOTP codes**: Generates live 2FA codes from a stored seed and saves `otpauth://` URI.
   - Editable as: `SECRET [DIGITS [PERIOD]]` (`PERIOD` defaults to `30`, and `DIGITS` to `6`)
