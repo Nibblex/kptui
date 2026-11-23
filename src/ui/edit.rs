@@ -204,8 +204,7 @@ pub(crate) fn readonly_view<'a>(area: Rect, app: &'a App, field: usize, selectio
 	let text = match field {
 		NAME_INDEX => entry.name.as_str(),
 		USER_INDEX => entry.user.as_str(),
-		// A hidden password can't be selected: that would copy what isn't shown.
-		PASSWORD_INDEX if !app.show_password => return None,
+		// Also when hidden: the dots line up with it, so it can be copied without showing it.
 		PASSWORD_INDEX => entry.password.as_str(),
 		URL_INDEX => entry.url.as_str(),
 		TOTP_INDEX => app.totp_cache.as_ref()?.code.as_str(),
@@ -390,8 +389,7 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 		let shown = if hide { Cow::Owned(masked(&text[visible.clone()])) } else { Cow::Borrowed(&text[visible.clone()]) };
 		frame.render_widget(Paragraph::new(shown.as_ref()).style(super::input_style(theme)), field_area);
 		let selection = editor.selection();
-		// Mouse selection would copy what isn't shown, so it's off while the password is hidden.
-		edit_view = (!hide).then(|| EditView::new(field_area, std::iter::once(visible), text, selection.as_ref()));
+		edit_view = Some(EditView::new(field_area, std::iter::once(visible), text, selection.as_ref()));
 
 		let cursor_x = field_area.x.saturating_add(u16::try_from(cursor_column).unwrap_or(u16::MAX));
 		if selection.is_none()
@@ -479,6 +477,30 @@ mod mask_tests {
 #[cfg(all(test, feature = "gui", target_os = "linux", target_env = "gnu"))]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_hidden_password_can_be_selected() {
+		let mut app = crate::app::start(false, zeroize::Zeroizing::new(String::new()));
+		let mut entry = crate::db::Entry::default();
+		entry.password = "pä猫z".to_string();
+		app.edit_entry = Some(entry);
+		assert!(!app.show_password);
+		let (_, text) = readonly_view(Rect::new(0, 0, 96, 26), &app, PASSWORD_INDEX, None).expect("password should be selectable");
+		assert_eq!(text, "pä猫z");
+	}
+
+	#[test]
+	fn selecting_a_hidden_password_lines_up_with_its_dots() {
+		let text = "pä猫z";
+		let selection = "p".len().."pä猫".len();
+		let view = EditView::new(Rect::new(10, 3, 20, 1), std::iter::once(0..text.len()), text, Some(&selection));
+		let before = masked(&text[..selection.start]).width() as u16;
+		let selected = masked(&text[selection.clone()]).width() as u16;
+		assert_eq!(view.highlights, [Rect::new(10 + before, 3, selected, 1)]);
+		// On either dot of the wide character.
+		assert_eq!(view.offset_at(text, 12.2, 3.0, false), Some("pä".len()));
+		assert_eq!(view.offset_at(text, 13.5, 3.0, false), Some("pä猫".len()));
+	}
 
 	#[test]
 	fn mouse_hit_testing_and_highlight_follow_visible_graphemes() {

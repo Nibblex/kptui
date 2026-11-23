@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/pepa65/kptui/blob/main/LICENSE.md)
 [![downloads](https://img.shields.io/crates/d/kptui.svg)](https://crates.io/crates/kptui)
 
-# kptui 0.39.0-nibblex.1
+# kptui 0.39.0-nibblex.2
 ## About this fork
 This is a fork of [pepa65/kptui](https://github.com/pepa65/kptui), which deliberately stays small.
 It adds what a KeePassXC user on a text console or over SSH may miss:
@@ -20,7 +20,7 @@ It adds what a KeePassXC user on a text console or over SSH may miss:
 
 To install it: `cargo install --git https://github.com/Nibblex/kptui --branch nibblex --locked kptui`,
 or get a binary from the [releases](https://github.com/Nibblex/kptui/releases).
-`kptui version` shows the fork's version, like `0.39.0-nibblex.1`. Everything below describes this fork,
+`kptui version` shows the fork's version, like `0.39.0-nibblex.2`. Everything below describes this fork,
 but the download links in "Installing" are upstream's.
 
 **Highly secure TUI password manager for [KeePass](https://keepass.info/) KDBX vaults (includes Linux GUI)**
@@ -237,7 +237,7 @@ All fields are optional, as the above are the default values.
   - If another buffer gets created at the very same moment, kptui can't tell which one is its own:
     it says so and leaves both alone.
 * Passwords are hidden on screen unless shown with `Ctrl-r`, and hidden again for every entry that gets opened.
-  In the GUI, a hidden password can't be selected with the mouse, so it can't end up in the Primary selection unseen.
+  In the GUI, a hidden password can be selected with the mouse too, so it can be copied without showing it.
 * Additional attributes keep their protection when saved, and protected values are hidden on screen until shown with `Ctrl-r`.
   The Attributes line of an entry only shows their names.
 * Using encrypted swap or zram (or no swap) increases security.
