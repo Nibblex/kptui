@@ -13,8 +13,7 @@ pub mod index;
 pub mod login;
 pub mod settings;
 
-/// What hides every character of a password.
-const DOT: &str = "•";
+pub const DOT: &str = "•";
 
 fn mask_password(text: &str) -> String {
 	DOT.repeat(text.chars().count())

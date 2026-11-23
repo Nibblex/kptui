@@ -5,14 +5,12 @@
 [![license](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/pepa65/kptui/blob/main/LICENSE.md)
 [![downloads](https://img.shields.io/crates/d/kptui.svg)](https://crates.io/crates/kptui)
 
-# kptui 0.39.0-nibblex.2
+# kptui 0.40.0-nibblex.1
 ## About this fork
 This is a fork of [pepa65/kptui](https://github.com/pepa65/kptui), which deliberately stays small.
 It adds what a KeePassXC user on a text console or over SSH may miss:
 * **Copy to tmux** (`Ctrl-y`): copies the selected field to a tmux paste buffer, cleared after a delay (opt-in).
   Proposed upstream as [#1](https://github.com/pepa65/kptui/pull/1).
-* **Hidden passwords** (`Ctrl-r`): passwords show as dots until shown.
-  Proposed upstream as [#4](https://github.com/pepa65/kptui/pull/4).
 * **Remote vaults over SFTP**: `database = "sftp://host/path/vault.kdbx"`, used through a local copy,
   with changes from other devices merged in when saving.
 * **Groups**: the Index browses the groups (folders) of the vault.
@@ -20,7 +18,7 @@ It adds what a KeePassXC user on a text console or over SSH may miss:
 
 To install it: `cargo install --git https://github.com/Nibblex/kptui --branch nibblex --locked kptui`,
 or get a binary from the [releases](https://github.com/Nibblex/kptui/releases).
-`kptui version` shows the fork's version, like `0.39.0-nibblex.2`. Everything below describes this fork,
+`kptui version` shows the fork's version, like `0.40.0-nibblex.1`. Everything below describes this fork,
 but the download links in "Installing" are upstream's.
 
 **Highly secure TUI password manager for [KeePass](https://keepass.info/) KDBX vaults (includes Linux GUI)**
@@ -106,14 +104,14 @@ but the download links in "Installing" are upstream's.
 
 ## Usage
 ```
-kptui 0.39.0 - TUI password manager for KeePass vaults
+kptui 0.40.0 - TUI password manager for KeePass vaults
 Usage:  kptui [slim | version | help]
 ```
 
 ## Installing
 ### Download static single-binary `kptui` for amd64 Linux
 ```
-wget https://github.com/pepa65/kptui/releases/download/0.39.0/kptui
+wget https://github.com/pepa65/kptui/releases/download/0.40.0/kptui
 sudo mv kptui /usr/local/bin
 sudo chown root:root /usr/local/bin/kptui
 sudo chmod +x /usr/local/bin/kptui
@@ -121,14 +119,14 @@ sudo chmod +x /usr/local/bin/kptui
 
 ### Download static single-binary `kptui` for Android
 ```
-wget -O kptui https://github.com/pepa65/kptui/releases/download/0.39.0/kptui_android
+wget -O kptui https://github.com/pepa65/kptui/releases/download/0.40.0/kptui_android
 sudo chmod +x /usr/local/bin/kptui
 ```
 
 ### Download deb/rpm `kpgui` for amd64 Linux
 ```
-wget https://github.com/pepa65/kptui/releases/download/0.39.0/kpgui_0.39.0-1_amd64.deb
-wget https://github.com/pepa65/kptui/releases/download/0.39.0/kpgui_0.39.0-1.x86_64.rpm
+wget https://github.com/pepa65/kptui/releases/download/0.40.0/kpgui_0.40.0-1_amd64.deb
+wget https://github.com/pepa65/kptui/releases/download/0.40.0/kpgui_0.40.0-1.x86_64.rpm
 ```
 
 ### Install with cargo
