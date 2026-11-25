@@ -22,7 +22,7 @@ use zeroize::Zeroizing;
 
 const BIN_NAME: &str = env!("CARGO_BIN_NAME");
 /// The version of this fork (https://github.com/Nibblex/kptui), after the upstream version.
-const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-nibblex.1");
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-nibblex.2");
 const USAGE: &str = concat!("Usage: ", env!("CARGO_BIN_NAME"), " [tui | slim | gui | readme | help | version] [NAME[.toml]]");
 const DOT: &str = "•";
 

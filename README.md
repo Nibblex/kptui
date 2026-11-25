@@ -5,11 +5,11 @@
 [![license](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/pepa65/kptui/blob/main/LICENSE.md)
 [![downloads](https://img.shields.io/crates/d/kptui.svg)](https://crates.io/crates/kptui)
 
-# kptui 0.43.0-nibblex.1
+# kptui 0.43.0-nibblex.2
 ## About this fork
 This is a fork of [pepa65/kptui](https://github.com/pepa65/kptui), which deliberately stays small.
 It adds what a KeePassXC user on a text console or over SSH may miss:
-* **Copy to tmux** (`Ctrl-y`): copies the selected field to a tmux paste buffer, cleared after a delay (opt-in).
+* **Copy to tmux** (`Ctrl-c` on an entry): copies the selected field to a tmux paste buffer, cleared after a delay (opt-in).
   Proposed upstream as [#1](https://github.com/pepa65/kptui/pull/1).
 * **Remote vaults over SFTP**: `database = "sftp://host/path/vault.kdbx"`, used through a local copy,
   with changes from other devices merged in when saving.
@@ -18,7 +18,7 @@ It adds what a KeePassXC user on a text console or over SSH may miss:
 
 To install it: `cargo install --git https://github.com/Nibblex/kptui --branch nibblex --locked kptui`,
 or get a binary from the [releases](https://github.com/Nibblex/kptui/releases).
-`kptui version` shows the fork's version, like `0.43.0-nibblex.1`. Everything below describes this fork,
+`kptui version` shows the fork's version, like `0.43.0-nibblex.2`. Everything below describes this fork,
 but the download links in "Installing" are upstream's.
 
 **Highly secure TUI password manager for [KeePass](https://keepass.info/) KDBX vaults (includes Linux GUI)**
@@ -61,7 +61,7 @@ but the download links in "Installing" are upstream's.
   Advanced section, or the extra fields of KeePass2Android. The Attributes line of an entry lists their names,
   and `Enter` on it opens them, with the selected value below the list:
   - `Enter` edits the value (which can have several lines), `Ctrl-n` adds an attribute,
-    `Ctrl-e` renames it and `Ctrl-d` deletes it. With tmux copy on, `Ctrl-y` copies the value.
+    `Ctrl-e` renames it and `Ctrl-d` deletes it. With tmux copy on, `Ctrl-c` copies the value.
   - Protected values show as dots until `Ctrl-r` shows them. `Ctrl-p` protects or unprotects an attribute.
   - `Ctrl-s` saves the entry, and `Esc` goes back to it.
 * **TOTP codes**: Generates live 2FA codes (current and next, with countdown)
@@ -90,7 +90,7 @@ but the download links in "Installing" are upstream's.
     They get uploaded after the next unlock, or the next save, when the server can be reached.
   - Auto-exit doesn't wait for an upload: what isn't uploaded by then stays in the local copy.
   - Just opening and unlocking the database never writes to the server.
-* **Copy to tmux** (off by default): With `tmux_clear` set and kptui running inside tmux, `Ctrl-y` on an entry copies
+* **Copy to tmux** (off by default): With `tmux_clear` set and kptui running inside tmux, `Ctrl-c` on an entry copies
   the selected field (or the current TOTP code) to a tmux paste buffer, to paste with `prefix ]`. This also works
   while the password is hidden. tmux deletes the buffer after `tmux_clear` seconds, or earlier when kptui exits.
 * **Access Configuration from the app**: On the Login screen or the Index screen, give `Ctrl-c`:
@@ -209,7 +209,7 @@ kdf_iterations = 90  # Can be lower if less paranoid about being brute-forced
 kdf_memory = "256M"  # 256 MiB, also accepts byte count (unquoted!)
 auto_exit = 0  # Seconds of inactivity before exiting the app (0: never auto-exit)
 theme = "default"  # Theme in ~/.local/share/kptui/themes/
-tmux_clear = 0  # Seconds before tmux deletes a value copied with Ctrl-y (0: no copying to tmux)
+tmux_clear = 0  # Seconds before tmux deletes a value copied with Ctrl-c (0: no copying to tmux)
 ```
 
 All fields are optional, as the above are the default values.

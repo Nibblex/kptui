@@ -53,7 +53,7 @@ fn help_items(slim_mode: bool, edit: Option<AttributeEdit>, protected: bool, sho
 		],
 	};
 	if tmux_copy && edit.is_none() {
-		items.insert(1, if slim_mode { "[^y]" } else { "[^y] Copy" });
+		items.insert(1, if slim_mode { "[^c]" } else { "[^c] Copy" });
 	}
 	items
 }
@@ -197,7 +197,7 @@ mod tests {
 		assert!(!help_items(false, Some(AttributeEdit::Value(0)), false, false, false).contains(&"[^r] Show"));
 		assert!(help_items(false, None, true, true, false).contains(&"[^p] Unprotect"));
 		assert!(help_items(false, None, false, true, false).contains(&"[^r] Hide"));
-		assert!(help_items(false, None, false, false, true).contains(&"[^y] Copy"));
-		assert!(!help_items(false, Some(AttributeEdit::Value(0)), false, false, true).contains(&"[^y] Copy"));
+		assert!(help_items(false, None, false, false, true).contains(&"[^c] Copy"));
+		assert!(!help_items(false, Some(AttributeEdit::Value(0)), false, false, true).contains(&"[^c] Copy"));
 	}
 }

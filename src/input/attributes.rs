@@ -72,7 +72,7 @@ pub fn handle_attributes_input(app: &mut App, key: KeyEvent) {
 					}
 				}
 				'p' => toggle_protection(app),
-				'y' if app.tmux_copy() => copy_selected(app),
+				'c' if app.tmux_copy() => copy_selected(app),
 				'r' => app.show_protected = !app.show_protected,
 				'd' => {
 					if let Some(index) = selected(app) {
@@ -222,7 +222,7 @@ fn check_name(name: &str, attributes: &[Attribute], target: Option<usize>) -> Re
 	Ok(name.to_string())
 }
 
-/// Copies the selected value to a tmux paste buffer, like Control-Y on an entry.
+/// Copies the selected value to a tmux paste buffer, like Control-C on an entry.
 fn copy_selected(app: &mut App) {
 	let Some(index) = selected(app) else {
 		return;
