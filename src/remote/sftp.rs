@@ -6,6 +6,7 @@
 //! password (key or agent), and the host key must be known already. Only the
 //! encrypted database file is ever transferred.
 
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -31,16 +32,22 @@ pub enum Failure {
 	Missing,
 	/// Connected, but the transfer failed.
 	Failed(String),
+	/// Broken off, because it's time for auto-exit.
+	Stopped,
 }
 
 impl std::fmt::Display for Failure {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::Unreachable(reason) | Self::Failed(reason) => f.write_str(reason),
+			Self::Unreachable(reason) => write!(f, "server unreachable: {}", shorten(reason)),
 			Self::Missing => f.write_str("not found on the server"),
+			Self::Failed(reason) => f.write_str(&shorten(reason)),
+			Self::Stopped => f.write_str("stopped by auto-exit"),
 		}
 	}
 }
+
+impl std::error::Error for Failure {}
 
 /// A database file on an SFTP server: `sftp://[user@]host[:port]/path`.
 ///
@@ -55,6 +62,19 @@ pub struct Target {
 	port: Option<u16>,
 	/// Absolute, or starting with `./` for the login directory.
 	path: String,
+}
+
+/// What to replace the file on the server with, see `Target::replace`.
+pub struct Upload<'a> {
+	pub name: &'a str,
+	/// Where to download what gets replaced.
+	pub replaced: &'a str,
+	/// Whether there must be a file to replace, or must not be one.
+	pub must_exist: bool,
+	/// The permissions to set, to keep those of the replaced file.
+	pub mode: Option<u32>,
+	/// Identifies this device.
+	pub id: &'a str,
 }
 
 impl Target {
@@ -97,41 +117,64 @@ impl Target {
 	}
 
 	/// Downloads the file to `dir/name`, keeping its permissions.
-	pub fn download(&self, dir: &Path, name: &str) -> Result<(), Failure> {
-		match self.run(dir, &format!("get -p {} {}\n", escape(&self.path), escape(name))) {
-			Err(Failure::Failed(reason)) if reason.contains("not found") || reason.contains("No such file") => Err(Failure::Missing),
+	pub fn download(&self, dir: &Path, name: &str, until: Option<Instant>) -> Result<(), Failure> {
+		let path = dir.join(name);
+		let _ = fs::remove_file(&path);
+		match self.run(dir, &format!("get -p {} {}\n", escape(&self.path), escape(name)), until) {
+			Ok(()) => File::open(&path).and_then(|file| file.sync_all()).map_err(|err| Failure::Failed(format!("couldn't store it: {err}"))),
+			Err(Failure::Failed(reason)) if is_missing(&reason) => Err(Failure::Missing),
 			result => result,
 		}
 	}
 
-	/// Uploads `dir/name` over the file. It goes to a hidden file next to it
+	/// Replaces the file with `upload.name`. It goes to a hidden file next to it
 	/// first, which then gets renamed over it, so the file is replaced in one go
 	/// (this needs OpenSSH's posix-rename, which OpenSSH servers have).
-	/// `mode` sets the permissions, to keep those of the replaced file.
-	pub fn upload(&self, dir: &Path, name: &str, mode: Option<u32>) -> Result<(), Failure> {
-		let upload = escape(&self.upload_path());
-		let mut commands = format!("-rm {upload}\nput {} {upload}\n", escape(name));
-		if let Some(mode) = mode {
-			commands.push_str(&format!("-chmod {:o} {upload}\n", mode & 0o777));
+	///
+	/// SFTP can't replace a file only if it didn't change. So right before the
+	/// rename, in the same session, what's about to be replaced is downloaded to
+	/// `upload.replaced`, to notice a change and keep it. Without `must_exist`,
+	/// this fails if the file does exist (a rename without posix-rename does).
+	pub fn replace(&self, dir: &Path, upload: &Upload, until: Option<Instant>) -> Result<(), Failure> {
+		let _ = fs::remove_file(dir.join(upload.replaced));
+		let staging = escape(&self.staging_path(upload.id));
+		let path = escape(&self.path);
+		let mut commands = format!("-rm {staging}\nput {} {staging}\n", escape(upload.name));
+		if let Some(mode) = upload.mode {
+			commands.push_str(&format!("-chmod {:o} {staging}\n", mode & 0o777));
 		}
-		commands.push_str(&format!("rename {upload} {}\n", escape(&self.path)));
+		commands.push_str(&if upload.must_exist {
+			// Not being able to download it stops the batch, before the rename.
+			format!("get -p {path} {}\nrename {staging} {path}\n", escape(upload.replaced))
+		} else {
+			format!("rename -l {staging} {path}\n")
+		});
 
-		let result = self.run(dir, &commands);
-		if let Err(Failure::Failed(_)) = result {
-			let _ = self.run(dir, &format!("-rm {upload}\n"));
+		let result = self.run(dir, &commands, until);
+		if let Err(Failure::Failed(reason)) = &result {
+			let _ = self.run(dir, &format!("-rm {staging}\n"), until);
+			if upload.must_exist && is_missing(reason) {
+				return Err(Failure::Missing);
+			}
 		}
 		result
 	}
 
-	fn upload_path(&self) -> String {
+	/// Every device has its own hidden file, so uploads at the same time don't mix.
+	fn staging_path(&self, id: &str) -> String {
 		match self.path.rsplit_once('/') {
-			Some((dir, file)) => format!("{dir}/.{file}.kptui-upload"),
-			None => format!(".{}.kptui-upload", self.path),
+			Some((dir, file)) => format!("{dir}/.{file}.kptui-upload-{id}"),
+			None => format!(".{}.kptui-upload-{id}", self.path),
 		}
 	}
 
-	/// Runs `sftp` with `commands` as its batch file, in `dir`.
-	fn run(&self, dir: &Path, commands: &str) -> Result<(), Failure> {
+	/// Runs `sftp` with `commands` as its batch file, in `dir`. It's broken off
+	/// after a while, and at `until`.
+	fn run(&self, dir: &Path, commands: &str, until: Option<Instant>) -> Result<(), Failure> {
+		let stop = || until.is_some_and(|until| Instant::now() >= until);
+		if stop() {
+			return Err(Failure::Stopped);
+		}
 		let mut command = Command::new("sftp");
 		command.args(["-b", "-", "-o", "BatchMode=yes", "-o", CONNECT_TIMEOUT, "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]);
 		if let Some(port) = self.port {
@@ -164,7 +207,7 @@ impl Target {
 		let status = loop {
 			match child.try_wait() {
 				Ok(Some(status)) => break Some(status),
-				Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+				Ok(None) if Instant::now() < deadline && !stop() => std::thread::sleep(Duration::from_millis(50)),
 				_ => {
 					let _ = child.kill();
 					let _ = child.wait();
@@ -177,9 +220,10 @@ impl Target {
 
 		match status {
 			Some(status) if status.success() => Ok(()),
-			// ssh exits with 255 when it couldn't connect or log in.
-			Some(status) if status.code() == Some(255) => Err(Failure::Unreachable(reason(&stderr, "couldn't connect"))),
+			// ssh exits with 255 when it couldn't connect or log in, or lost the connection.
+			Some(status) if status.code().is_none_or(|code| code == 255) => Err(Failure::Unreachable(reason(&stderr, "couldn't connect"))),
 			Some(_) => Err(Failure::Failed(reason(&stderr, "the transfer failed"))),
+			None if stop() => Err(Failure::Stopped),
 			None => Err(Failure::Unreachable("timed out".to_string())),
 		}
 	}
@@ -192,11 +236,19 @@ fn reason(stderr: &str, fallback: &str) -> String {
 		.map(str::trim)
 		.rfind(|line| !line.is_empty() && !line.starts_with("Connection closed") && !line.starts_with("Warning: Permanently added"))
 		.unwrap_or(fallback);
-	let line = line.strip_prefix("ssh: ").unwrap_or(line);
-	match line.char_indices().nth(REASON_MAX) {
-		Some((cut, _)) => format!("{}...", &line[..cut]),
-		None => line.to_string(),
+	line.strip_prefix("ssh: ").unwrap_or(line).to_string()
+}
+
+fn shorten(reason: &str) -> String {
+	match reason.char_indices().nth(REASON_MAX) {
+		Some((cut, _)) => format!("{}...", &reason[..cut]),
+		None => reason.to_string(),
 	}
+}
+
+/// Whether the reason is that there's no such file on the server.
+fn is_missing(reason: &str) -> bool {
+	!reason.starts_with("open local") && (reason.ends_with("\" not found.") || reason.ends_with("No such file or directory"))
 }
 
 /// Escapes a path for an `sftp` batch file.
@@ -287,7 +339,7 @@ fn percent_decode(text: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-	use super::{Target, escape, is_url, reason};
+	use super::{Failure, REASON_MAX, Target, escape, is_missing, is_url, reason};
 
 	fn parse(url: &str) -> Target {
 		Target::parse(url).unwrap_or_else(|err| panic!("{url} should parse: {err}"))
@@ -344,9 +396,15 @@ mod tests {
 
 	#[test]
 	fn upload_goes_to_a_hidden_file_next_to_the_target() {
-		assert_eq!(parse("sftp://nas/srv/vault.kdbx").upload_path(), "/srv/.vault.kdbx.kptui-upload");
-		assert_eq!(parse("sftp://nas/vault.kdbx").upload_path(), "/.vault.kdbx.kptui-upload");
-		assert_eq!(parse("sftp://nas/~/vault.kdbx").upload_path(), "./.vault.kdbx.kptui-upload");
+		assert_eq!(parse("sftp://nas/srv/vault.kdbx").staging_path("12ab"), "/srv/.vault.kdbx.kptui-upload-12ab");
+		assert_eq!(parse("sftp://nas/vault.kdbx").staging_path("12ab"), "/.vault.kdbx.kptui-upload-12ab");
+		assert_eq!(parse("sftp://nas/~/vault.kdbx").staging_path("12ab"), "./.vault.kdbx.kptui-upload-12ab");
+	}
+
+	#[test]
+	fn nothing_runs_once_it_is_time_for_auto_exit() {
+		let target = parse("sftp://nas.invalid/vault.kdbx");
+		assert_eq!(target.download(&std::env::temp_dir(), "kptui-never-downloaded", Some(std::time::Instant::now())), Err(Failure::Stopped));
 	}
 
 	#[test]
@@ -363,5 +421,24 @@ mod tests {
 			"connect to host nas port 22: Connection refused"
 		);
 		assert_eq!(reason("", "fallback"), "fallback");
+
+		let long = Failure::Failed("x".repeat(200));
+		assert_eq!(long.to_string().len(), REASON_MAX + 3);
+	}
+
+	#[test]
+	fn knows_when_there_is_no_such_file() {
+		// Also when the path is longer than what's shown.
+		let path = "/long".repeat(40);
+		for line in [format!("File \"{path}\" not found."), format!("remote open \"{path}\": No such file or directory")] {
+			assert!(is_missing(&reason(&line, "")), "{line}");
+		}
+		for line in [
+			"remote open \"/not found./vault.kdbx\": Permission denied",
+			"open local \"vault.kdbx.download\": No such file or directory",
+			"Failure",
+		] {
+			assert!(!is_missing(&reason(line, "")), "{line}");
+		}
 	}
 }

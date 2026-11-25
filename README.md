@@ -79,12 +79,16 @@ but the download links in "Installing" are upstream's.
     and the server's host key must already be known.
   - On start, the server copy replaces the local copy (in `~/.local/share/kptui/remote/`).
     When the server can't be reached, the local copy gets opened instead.
+  - Only one kptui on a device can use a remote vault at a time. Another one says so, and can try again with `Enter`.
   - Every save uploads the database. When the server copy changed in the meantime (another device saved),
     both get merged first, entry by entry and field by field. If the same field was changed differently,
     the newest version wins, and the other one is kept as an extra entry with " (conflict)" after its name.
-    An entry deleted on one side but changed on the other is kept.
+    An entry deleted on one side but changed on the other is kept. Protecting an attribute counts as a change.
+  - What another device saves during an upload gets merged and uploaded too, with one exception
+    (see [Security notes](#security-notes)).
   - Changes that couldn't be uploaded stay in the local copy, and the Index title says "(not uploaded)".
     They get uploaded after the next unlock, or the next save, when the server can be reached.
+  - Auto-exit doesn't wait for an upload: what isn't uploaded by then stays in the local copy.
   - Just opening and unlocking the database never writes to the server.
 * **Copy to tmux** (off by default): With `tmux_clear` set and kptui running inside tmux, `Ctrl-y` on an entry copies
   the selected field (or the current TOTP code) to a tmux paste buffer, to paste with `prefix ]`. This also works
@@ -226,10 +230,17 @@ All fields are optional, as the above are the default values.
 * With an `sftp://` database, only the encrypted database file is transferred, never the master password or keyfile:
   - Transfers use OpenSSH's `sftp` with `BatchMode=yes`: it never prompts, and an unknown host key makes it fail.
   - The URL can't hold a password, and hosts, users and paths that could pass as options are refused.
-  - The local copy and the last uploaded version (next to it, with `.base` after the name) are kept in
-    `~/.local/share/kptui/remote/`, which is only accessible to the user.
-  - An upload goes to a hidden file next to the database (`.NAME.kptui-upload`), which then gets renamed over it,
-    so the server file never ends up half-written. The database keeps its permissions on the server.
+  - The local copy and other versions of the (encrypted) database are kept in `~/.local/share/kptui/remote/`,
+    which is only accessible to the user: the last one known to be on the server (with `.base` after the name),
+    and after an interrupted upload, what was being uploaded (`.uploading`) and what that replaces (`.replaced`).
+  - An upload goes to a hidden file next to the database (`.NAME.kptui-upload-ID`, where ID is a random number for
+    this device), which then gets renamed over it, so the server file never ends up half-written.
+    The database keeps its permissions on the server, but not its owner.
+  - SFTP can't lock a file, or replace it only if it didn't change. So right before the rename, in the same session,
+    the server file is downloaded once more. If another device changed it, that gets merged and uploaded, too.
+    If it can't be opened or is another database, it's kept next to the local copy (with `.unmerged-1` after the name),
+    and the status says so. What can still get lost is a version that another program saves between that download
+    and the rename, or that it's still writing at that moment.
   - Like any save by kptui, an upload only keeps what kptui stores (see above). Attachments, entry history,
     icons and tags are not kept, so other clients sharing the database lose them too.
 * Copying to tmux is off by default. When enabled, a copied value is in the tmux server's memory, out of kptui's control:

@@ -449,6 +449,10 @@ pub fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, slim_mode: boo
 				})?;
 			}
 		}
+		if app.remote.retry {
+			crate::remote::retry(&mut app);
+			continue;
+		}
 		// After work that may have written the database, a remote one gets uploaded.
 		if app.pending_unlock {
 			attempt_unlock(&mut app);

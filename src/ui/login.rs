@@ -45,7 +45,8 @@ pub fn draw_login(frame: &mut Frame, app: &mut App) {
 	// Calculate available input characters
 	app.max_len = input_area.width.saturating_sub(2) as usize;
 
-	let missing = database_missing(app);
+	let blocked = app.remote.blocked;
+	let missing = blocked || database_missing(app);
 
 	enum PromptContent<'a> {
 		Masked(&'a str),
@@ -59,8 +60,8 @@ pub fn draw_login(frame: &mut Frame, app: &mut App) {
 		} else {
 			(" New master password ", PromptContent::Masked(&app.password))
 		}
-	} else if missing && app.remote.blocked {
-		(" Database not available ", PromptContent::Static("No local copy to open"))
+	} else if blocked {
+		(" Database not available ", PromptContent::Static("[Enter] Try again"))
 	} else if missing {
 		(" Database file not present ", PromptContent::Static("[c] Create the new database"))
 	} else {
@@ -190,7 +191,7 @@ pub fn draw_login(frame: &mut Frame, app: &mut App) {
 	} else if missing {
 		let hint_area = Rect { x: input_area.x, y: input_area.y.saturating_add(input_area.height), width: input_area.width, height: 1 };
 
-		let hint = Paragraph::new(if app.remote.blocked { "[^c] Config  [Esc] Quit" } else { "[c] Create database  [^c] Config  [Esc] Quit" })
+		let hint = Paragraph::new(if blocked { "[Enter] Try again  [^c] Config  [Esc] Quit" } else { "[c] Create database  [^c] Config  [Esc] Quit" })
 			.alignment(Alignment::Center)
 			.style(Style::new().fg(app.theme.warning));
 

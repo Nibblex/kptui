@@ -23,6 +23,18 @@ pub fn handle_login_input(app: &mut App, key: KeyEvent) {
 		return;
 	}
 
+	if app.remote.blocked {
+		match key.code {
+			KeyCode::Enter => {
+				app.remote.note = Some("Trying again...".to_string());
+				app.remote.retry = true;
+			}
+			KeyCode::Esc => app.should_quit = true,
+			_ => {}
+		}
+		return;
+	}
+
 	if database_missing(app) {
 		handle_missing_database_input(app, key.code);
 		return;
@@ -60,7 +72,7 @@ pub fn database_missing(app: &App) -> bool {
 
 fn handle_missing_database_input(app: &mut App, key: KeyCode) {
 	match crate::input::normalize_shortcut(key) {
-		KeyCode::Char('c') if !app.remote.blocked => {
+		KeyCode::Char('c') => {
 			if app.password.is_empty() {
 				start_create_database(app);
 			} else {
@@ -142,7 +154,6 @@ fn finish_create_database(app: &mut App) {
 pub fn create_database_with_password(app: &mut App) {
 	if app.remote.blocked {
 		app.password.zeroize();
-		app.login_error = app.remote.note.clone();
 		return;
 	}
 	let path = app.config.default_database.clone().unwrap_or_else(default_new_database_path);
@@ -187,6 +198,10 @@ pub fn request_unlock(app: &mut App) {
 
 pub fn attempt_unlock(app: &mut App) {
 	app.pending_unlock = false;
+	if app.remote.blocked {
+		app.password.zeroize();
+		return;
+	}
 	let Some(path) = app.config.default_database.as_deref() else {
 		app.login_error = Some("No default_database set in configfile".to_string());
 		return;

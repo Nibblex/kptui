@@ -113,14 +113,17 @@ impl Session {
 	}
 
 	fn pending_work(&self) -> bool {
-		self.app.pending_unlock || self.app.pending_kdf_change.is_some() || self.app.pending_save.is_some() || self.app.remote.pending
+		let app = &self.app;
+		app.pending_unlock || app.pending_kdf_change.is_some() || app.pending_save.is_some() || app.remote.pending || app.remote.retry
 	}
 
 	fn process_pending_work(&mut self) -> bool {
 		if self.redraw || !self.pending_work() {
 			return false;
 		}
-		if self.app.pending_unlock {
+		if self.app.remote.retry {
+			crate::remote::retry(&mut self.app);
+		} else if self.app.pending_unlock {
 			crate::input::login::attempt_unlock(&mut self.app);
 		} else if self.app.pending_kdf_change.is_some() {
 			crate::input::settings::process_kdf_change(&mut self.app);
