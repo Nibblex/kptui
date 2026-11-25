@@ -73,6 +73,7 @@ pub enum AttributeEdit {
 
 pub struct TotpCache {
 	pub code: Zeroizing<String>,
+	pub next: Zeroizing<String>,
 	pub expires: Instant,
 }
 
@@ -172,9 +173,9 @@ pub struct App {
 }
 
 impl App {
-	/// Whether Ctrl-y copies entry fields to a tmux paste buffer.
+	/// Whether Control-Y copies entry fields to a tmux paste buffer.
 	pub fn tmux_copy(&self) -> bool {
-		self.config.tmux_copy && crate::tmux::available()
+		!self.config.tmux_clear.is_zero() && crate::tmux::available()
 	}
 
 	fn compute_filtered(&self) -> Vec<usize> {

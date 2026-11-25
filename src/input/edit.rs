@@ -8,7 +8,6 @@ use crate::app::{App, Screen, TotpCache};
 use crate::db::{current_totp_code, parse_totp_edit_value, save_database_as, totp_edit_value};
 use crate::input::command::preview_entry;
 use crate::input::fieldedit::{EditAction, FieldEditor};
-use crate::tmux::Copied;
 
 const FIELD_COUNT: usize = 7;
 const NAME_INDEX: usize = 0;
@@ -128,7 +127,7 @@ fn copy_selected_field(app: &mut App) {
 
 	// The code on screen may have expired since the last redraw.
 	if selected == TOTP_INDEX && app.totp_cache.as_ref().is_none_or(|cache| cache.expires <= Instant::now()) {
-		app.totp_cache = current_totp_code(&entry.totp).map(|t| TotpCache { code: t.code, expires: Instant::now() + t.valid_for });
+		app.totp_cache = current_totp_code(&entry.totp).map(|t| TotpCache { code: t.code, next: t.next, expires: Instant::now() + t.valid_for });
 	}
 
 	let (label, value) = match selected {
@@ -148,9 +147,8 @@ fn copy_selected_field(app: &mut App) {
 
 	let clear_after = app.config.tmux_clear;
 	app.status = Some(match app.tmux_buffer.copy(value, clear_after) {
-		Ok(Copied::Clearing) => format!("{label} copied to tmux, cleared in {}s", clear_after.as_secs()),
-		Ok(Copied::Untracked) => format!("{label} copied to tmux, but can't clear it"),
-		Err(err) => format!("{label} not copied: {err:#}"),
+		Ok(()) => format!("{label} copied to tmux, cleared in {}s", clear_after.as_secs()),
+		Err(err) => format!("{label} {err:#}"),
 	});
 }
 
@@ -409,7 +407,7 @@ mod save_shortcut_tests {
 	fn saves_database_when_selected_entry_is_absent() {
 		let path = std::env::temp_dir().join(format!("kptui-save-without-entry-{}.kdbx", std::process::id()));
 		let password = Zeroizing::new("save-test".to_string());
-		let (mut db, key, _) = crate::db::create_database(&path, 1, &password, None, crate::config::DEFAULT_KDF_MEMORY).unwrap();
+		let (mut db, key, _) = crate::db::create_database(&path, 1, &password, None, crate::config::MIB).unwrap();
 		db.root_mut().add_entry().set_unprotected(keepass::db::fields::TITLE, "Existing entry");
 		let mut app = crate::app::start(false, Zeroizing::new(String::new()));
 		app.kdbx = Some(db);

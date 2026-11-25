@@ -11,9 +11,7 @@ use ratatui::{
 use super::edit::EditView;
 use crate::app::{App, ExportStep, ImportStep};
 use crate::input::fieldedit::FieldEditor;
-use crate::input::settings::{
-	AUTO_EXIT_ROW, CHANGE_PASSWORD_ROW, FORMAT_ROW, LOCKED_ROW_COUNT, TMUX_CLEAR_ROW, UNLOCKED_ROW_COUNT, format_save_target, settings_row,
-};
+use crate::input::settings::{AUTO_EXIT_ROW, LOCKED_ROW_COUNT, TMUX_CLEAR_ROW, UNLOCKED_ROW_COUNT, format_save_target, settings_row};
 use crate::util::wrap_help_items;
 use unicode_width::UnicodeWidthStr;
 
@@ -93,14 +91,13 @@ fn draw_main_settings(frame: &mut Frame, app: &mut App) {
 	let labels = [
 		"Database",
 		"Keyfile (optional)",
-		format_label.as_str(),
 		"KDF iterations (time cost)",
 		"KDF memory (MiB)",
-		"Change master password",
 		"Auto-exit (seconds)",
 		"Theme",
-		"tmux copy (Ctrl-y)",
-		"tmux clear (seconds)",
+		"tmux clear (seconds, 0: off)",
+		format_label.as_str(),
+		"Change master password",
 		"Import data",
 		"Export data",
 	];
@@ -118,31 +115,25 @@ fn draw_main_settings(frame: &mut Frame, app: &mut App) {
 	let values = [
 		app.config.database_label().map_or_else(|| Span::styled("(not set)", placeholder), |label| Span::styled(label, normal)),
 		path_value(app.config.keyfile.as_deref()),
-		Span::styled("[Enter] to save", placeholder),
 		Span::styled(app.config.kdf_iterations.to_string(), normal),
 		Span::styled((app.config.kdf_memory as f64 / crate::config::MIB as f64).to_string(), normal),
-		Span::styled("[Enter] to change", placeholder),
 		Span::styled(app.config.auto_exit.as_secs().to_string(), normal),
 		theme_value,
-		Span::styled(if app.config.tmux_copy { "on" } else { "off" }, normal),
 		Span::styled(app.config.tmux_clear.as_secs().to_string(), normal),
+		Span::styled("[Enter] to save", placeholder),
+		Span::styled("[Enter] to change", placeholder),
 		Span::styled("[Enter] to import", placeholder),
 		Span::styled("[Enter] to export", placeholder),
 	];
 	let row_count = if app.login_settings { LOCKED_ROW_COUNT } else { UNLOCKED_ROW_COUNT };
-	let items = labels
-		.into_iter()
-		.zip(values)
-		.enumerate()
-		.filter(|(row, _)| !app.login_settings || !matches!(*row, FORMAT_ROW | CHANGE_PASSWORD_ROW))
-		.take(row_count)
-		.map(|(row, (label, value))| {
-			let style = if selected == row { editing_style } else { label_style };
-			ListItem::new(Line::from(vec![Span::styled(label, style), Span::styled(": ", normal), value]))
-		});
+	let items = labels.into_iter().zip(values).enumerate().take(row_count).map(|(row, (label, value))| {
+		let style = if selected == row { editing_style } else { label_style };
+		ListItem::new(Line::from(vec![Span::styled(label, style), Span::styled(": ", normal), value]))
+	});
 
 	let version = app.kdbx.as_ref().map(|db| db.config.version.to_string()).or_else(|| app.db_version.clone());
-	let title = version.map_or_else(|| "Configuration ".to_string(), |version| format!("Configuration {version} "));
+	let name = crate::config::config_name();
+	let title = version.map_or_else(|| format!("Configuration '{name}' "), |version| format!("Configuration '{name}' {version} "));
 	let section = super::section(&title, theme, 0);
 	let list_area = section.inner(vertical[0]);
 	let list = List::new(items).block(section);

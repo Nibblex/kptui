@@ -61,18 +61,29 @@ fn resolve_totp(e: &EntryRef) -> String {
 
 pub struct TotpCode {
 	pub code: Zeroizing<String>,
+	pub next: Zeroizing<String>,
 	pub valid_for: std::time::Duration,
 }
 
 pub fn current_totp_code(raw: &str) -> Option<TotpCode> {
+	totp_code_at(raw, SystemTime::now().duration_since(UNIX_EPOCH).ok()?)
+}
+
+fn totp_code_at(raw: &str, now: std::time::Duration) -> Option<TotpCode> {
 	if raw.trim().is_empty() {
 		return None;
 	}
-
 	let totp: keepass::db::TOTP = raw.parse().ok()?;
-	let otp_code = totp.value_now().ok()?;
-
-	Some(TotpCode { code: Zeroizing::new(otp_code.code), valid_for: otp_code.valid_for })
+	if totp.period == 0 {
+		return None;
+	}
+	let current = totp.value_at(now.as_secs());
+	let code = Zeroizing::new(current.code);
+	let next = Zeroizing::new(totp.value_at(now.as_secs().checked_add(current.valid_for.as_secs())?).code);
+	// The library reports whole seconds from the truncated Unix timestamp.
+	// Subtract the fractional second so the cached code expires at the boundary.
+	let valid_for = current.valid_for.saturating_sub(std::time::Duration::from_nanos(u64::from(now.subsec_nanos())));
+	Some(TotpCode { code, next, valid_for })
 }
 
 pub fn totp_edit_value(raw: &str) -> String {
@@ -253,7 +264,7 @@ pub fn create_database(
 	path: &Path, kdf_iterations: u64, password: &Zeroizing<String>, keyfile_path: Option<&Path>, kdf_memory: u64,
 ) -> anyhow::Result<(Database, DatabaseKey, Vec<Entry>)> {
 	anyhow::ensure!(
-		kdf_memory >= crate::config::MIB && kdf_memory % crate::config::MIB == 0,
+		kdf_memory >= crate::config::MIB && kdf_memory.is_multiple_of(crate::config::MIB),
 		"KDF memory must be a positive whole number of MiB"
 	);
 	anyhow::ensure!(kdf_memory / 1024 <= u64::from(u32::MAX), "KDF memory is too large");
@@ -470,7 +481,7 @@ mod tests {
 	fn password_only_databases_still_unlock() {
 		let dir = TestDir::new();
 		let database_path = dir.join("password-only.kdbx");
-		create_database(&database_path, 10, &Zeroizing::new("correct horse".to_string()), None, crate::config::DEFAULT_KDF_MEMORY)
+		create_database(&database_path, 1, &Zeroizing::new("correct horse".to_string()), None, crate::config::MIB)
 			.expect("password-only database should be created");
 		unlock_database(&database_path, &Zeroizing::new("correct horse".to_string()), None).expect("password-only database should unlock");
 	}
@@ -480,8 +491,7 @@ mod tests {
 		let dir = TestDir::new();
 		let database_path = dir.join("notes.kdbx");
 		let (mut database, key, mut entries) =
-			create_database(&database_path, 20, &Zeroizing::new("correct horse".to_string()), None, crate::config::DEFAULT_KDF_MEMORY)
-				.expect("database should be created");
+			create_database(&database_path, 1, &Zeroizing::new("correct horse".to_string()), None, crate::config::MIB).expect("database should be created");
 
 		{
 			let mut root = database.root_mut();
@@ -503,8 +513,7 @@ mod tests {
 		let dir = TestDir::new();
 		let database_path = dir.join("no-notes.kdbx");
 		let (mut database, key, mut entries) =
-			create_database(&database_path, 30, &Zeroizing::new("correct horse".to_string()), None, crate::config::DEFAULT_KDF_MEMORY)
-				.expect("database should be created");
+			create_database(&database_path, 1, &Zeroizing::new("correct horse".to_string()), None, crate::config::MIB).expect("database should be created");
 
 		{
 			let mut root = database.root_mut();
@@ -599,7 +608,7 @@ mod tests {
 		let keyfile_path = dir.join("database.keyx");
 		fs::write(&keyfile_path, XML_V1_KEYFILE).expect("XML v1 keyfile should be written");
 
-		create_database(&database_path, 40, &Zeroizing::new("correct horse".to_string()), Some(&keyfile_path), crate::config::DEFAULT_KDF_MEMORY)
+		create_database(&database_path, 1, &Zeroizing::new("correct horse".to_string()), Some(&keyfile_path), crate::config::MIB)
 			.expect("composite-key database should be created");
 		unlock_database(&database_path, &Zeroizing::new("correct horse".to_string()), Some(&keyfile_path))
 			.expect("database should unlock with password and keyfile");
@@ -616,7 +625,7 @@ mod tests {
 		fs::write(&keyfile_path, [42_u8; 32]).expect("keyfile should be written");
 
 		let (mut database, _, mut entries) =
-			create_database(&database_path, 50, &Zeroizing::new("old password".to_string()), Some(&keyfile_path), crate::config::DEFAULT_KDF_MEMORY)
+			create_database(&database_path, 1, &Zeroizing::new("old password".to_string()), Some(&keyfile_path), crate::config::MIB)
 				.expect("composite-key database should be created");
 		let new_key = build_database_key(&Zeroizing::new("new password".to_string()), Some(&keyfile_path)).expect("new composite key should be built");
 
@@ -660,7 +669,7 @@ mod tests {
 		fs::write(&correct_keyfile, [7_u8; 32]).expect("correct keyfile should be written");
 		fs::write(&wrong_keyfile, [9_u8; 32]).expect("wrong keyfile should be written");
 
-		create_database(&database_path, 60, &Zeroizing::new("secret".to_string()), Some(&correct_keyfile), crate::config::DEFAULT_KDF_MEMORY)
+		create_database(&database_path, 1, &Zeroizing::new("secret".to_string()), Some(&correct_keyfile), crate::config::MIB)
 			.expect("composite-key database should be created");
 
 		let error = unlock_database(&database_path, &Zeroizing::new("secret".to_string()), Some(&wrong_keyfile))
@@ -677,10 +686,9 @@ mod tests {
 		let database_path = dir.join("kdf-iterations.kdbx");
 		let password = Zeroizing::new("correct horse".to_string());
 
-		let (_database, key, mut entries) =
-			create_database(&database_path, 10, &password, None, crate::config::DEFAULT_KDF_MEMORY).expect("database should be created");
+		let (_database, key, mut entries) = create_database(&database_path, 1, &password, None, crate::config::MIB).expect("database should be created");
 
-		for expected_iterations in [200, 90] {
+		for expected_iterations in [2, 3] {
 			let (mut database, _, _) = unlock_database(&database_path, &password, None).expect("database should unlock");
 
 			reconcile_kdf_iterations(&database_path, &key, &mut database, &mut entries, expected_iterations).expect("KDF iterations should be reconciled");
@@ -702,10 +710,9 @@ mod tests {
 		let database_path = dir.join("kdf-reconcile.kdbx");
 		let password = Zeroizing::new("correct horse".to_string());
 
-		let (mut db, key, mut entries) =
-			create_database(&database_path, 10, &password, None, crate::config::DEFAULT_KDF_MEMORY).expect("database should be created");
+		let (mut db, key, mut entries) = create_database(&database_path, 1, &password, None, crate::config::MIB).expect("database should be created");
 
-		let changed = super::reconcile_kdf_iterations(&database_path, &key, &mut db, &mut entries, 90).expect("KDF iterations should be reconciled");
+		let changed = super::reconcile_kdf_iterations(&database_path, &key, &mut db, &mut entries, 3).expect("KDF iterations should be reconciled");
 
 		assert!(changed);
 
@@ -713,7 +720,7 @@ mod tests {
 
 		match reopened.config.kdf_config {
 			keepass::config::KdfConfig::Argon2 { iterations, .. } => {
-				assert_eq!(iterations, 90);
+				assert_eq!(iterations, 3);
 			}
 			_ => panic!("expected Argon2 KDF"),
 		}
@@ -725,7 +732,7 @@ mod tests {
 			let dir = TestDir::new();
 			let path = dir.join("format.kdbx");
 			let password = Zeroizing::new("format-test".to_string());
-			let (mut db, key, mut entries) = create_database(&path, 1, &password, None, crate::config::DEFAULT_KDF_MEMORY).unwrap();
+			let (mut db, key, mut entries) = create_database(&path, 1, &password, None, crate::config::MIB).unwrap();
 			super::save_database_as(&path, &key, &mut db, &mut entries, keepass::config::DatabaseVersion::KDB4(minor)).unwrap();
 			let mut entry = super::Entry::default();
 			entry.name = "New entry".to_string();
@@ -739,5 +746,34 @@ mod tests {
 			assert_eq!(reopened.config.version, keepass::config::DatabaseVersion::KDB4(minor));
 			assert!(saved.is_empty());
 		}
+	}
+}
+
+#[cfg(test)]
+mod totp_display_tests {
+	use super::*;
+	use std::time::Duration;
+
+	const OTP: &str = "otpauth://totp/test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=30";
+
+	#[test]
+	fn current_and_next_codes_roll_over_at_the_period_boundary() {
+		let before = totp_code_at(OTP, Duration::from_millis(59_500)).unwrap();
+		assert_eq!(before.code.as_str(), "94287082");
+		assert_eq!(before.next.as_str(), "37359152");
+		assert_eq!(before.valid_for, Duration::from_millis(500));
+		assert_eq!(before.valid_for.as_secs(), 0);
+		let after = totp_code_at(OTP, Duration::from_secs(60)).unwrap();
+		assert_eq!(after.code.as_str(), before.next.as_str());
+		assert_eq!(after.valid_for, Duration::from_secs(30));
+	}
+
+	#[test]
+	fn next_code_uses_the_configured_period() {
+		let otp = OTP.replace("period=30", "period=7");
+		let before = totp_code_at(&otp, Duration::from_millis(13_750)).unwrap();
+		let after = totp_code_at(&otp, Duration::from_secs(14)).unwrap();
+		assert_eq!(before.valid_for, Duration::from_millis(250));
+		assert_eq!(before.next.as_str(), after.code.as_str());
 	}
 }

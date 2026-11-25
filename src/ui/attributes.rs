@@ -19,7 +19,7 @@ use crate::util::wrap_help_items;
 
 /// Hides a protected value behind the same dots as a password, as wide as the text.
 fn hidden(text: &str) -> String {
-	text.graphemes(true).map(|cluster| super::DOT.repeat(cluster.width())).collect()
+	text.graphemes(true).map(|cluster| crate::DOT.repeat(cluster.width())).collect()
 }
 
 /// Shows a protected value hidden, unless shown with Control-R.

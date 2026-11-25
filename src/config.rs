@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -8,13 +9,33 @@ use serde::{Deserialize, Serialize};
 use crate::remote::{Remote, sftp};
 use crate::util::expand_tilde;
 
-const SAMPLE_CONFIG: &str = include_str!("../default_config.toml");
-const AUTO_EXIT: u64 = 300;
+const SAMPLE_CONFIG: &str = include_str!("../config.toml");
+const AUTO_EXIT: u64 = 0;
 const CONFIGFILE: &str = "~/.config/kptui/config.toml";
+static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn is_config_filename(name: &str) -> bool {
+	name.len() > 5 && !name.contains(['/', '\\']) && Path::new(name).extension().is_some_and(|ext| ext == "toml")
+}
+
+pub fn select_config(name: &str) -> anyhow::Result<()> {
+	anyhow::ensure!(is_config_filename(name), "expected a filename ending in .toml");
+	let path = expand_tilde("~/.config/kptui").join(name);
+	CONFIG_PATH.set(path).map_err(|_| anyhow::anyhow!("configuration file already selected"))
+}
+
+pub fn config_name() -> String {
+	config_path().file_stem().expect("config filename has a stem").to_string_lossy().into_owned()
+}
+
+fn config_path() -> PathBuf {
+	CONFIG_PATH.get().cloned().unwrap_or_else(|| expand_tilde(CONFIGFILE))
+}
+
 const KDF_ITERATIONS: u64 = 90;
 pub const MIB: u64 = 1024 * 1024;
 pub const DEFAULT_KDF_MEMORY: u64 = 256 * MIB;
-const TMUX_CLEAR: u64 = 30;
+const OLD_TMUX_CLEAR: u64 = 30;
 
 fn sibling_tmp_path(path: &Path) -> PathBuf {
 	let mut tmp = path.as_os_str().to_os_string();
@@ -32,7 +53,7 @@ pub struct Config {
 	pub kdf_memory: u64,
 	pub auto_exit: Duration,
 	pub theme: Option<String>,
-	pub tmux_copy: bool,
+	/// When tmux deletes a copied value (0: copying to tmux is off).
 	pub tmux_clear: Duration,
 }
 
@@ -46,8 +67,7 @@ impl Default for Config {
 			kdf_memory: DEFAULT_KDF_MEMORY,
 			auto_exit: Duration::from_secs(AUTO_EXIT),
 			theme: None,
-			tmux_copy: false,
-			tmux_clear: Duration::from_secs(TMUX_CLEAR),
+			tmux_clear: Duration::ZERO,
 		}
 	}
 }
@@ -87,6 +107,7 @@ struct ConfigFile {
 	kdf_memory: Option<KdfMemoryValue>,
 	auto_exit: Option<u64>,
 	theme: Option<String>,
+	/// Only in this fork's config files before 0.43.0-nibblex.1.
 	tmux_copy: Option<bool>,
 	tmux_clear: Option<u64>,
 }
@@ -118,30 +139,43 @@ impl KdfMemoryValue {
 }
 
 pub fn load_config() -> anyhow::Result<Config> {
-	let path = expand_tilde(CONFIGFILE);
+	let path = config_path();
+	let initial = if CONFIG_PATH.get().is_some() { serialize_config(&Config::default())? } else { SAMPLE_CONFIG.to_string() };
+	load_config_at(&path, &initial)
+}
 
+fn load_config_at(path: &Path, initial: &str) -> anyhow::Result<Config> {
 	if !path.exists() {
 		if let Some(parent) = path.parent() {
-			fs::create_dir_all(parent).with_context(|| format!("couldn't create {}", parent.display()))?;
+			fs::create_dir_all(parent).with_context(|| format!("couldn't create directory {}", parent.display()))?;
 		}
 
 		let mut options = fs::OpenOptions::new();
 		options.write(true).create_new(true);
-		let result = options.open(&path);
+		let result = options.open(path);
 		match result {
 			Ok(mut file) => {
 				use std::io::Write;
-				file.write_all(SAMPLE_CONFIG.as_bytes()).with_context(|| format!("couldn't write {}", path.display()))?;
+				file.write_all(initial.as_bytes()).with_context(|| format!("couldn't write file {}", path.display()))?;
 			}
 			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
 			Err(error) => {
-				return Err(error).with_context(|| format!("couldn't create {}", path.display()));
+				return Err(error).with_context(|| format!("couldn't create file {}", path.display()));
 			}
 		}
 	}
 
-	let text = fs::read_to_string(&path).with_context(|| format!("couldn't read {}", path.display()))?;
+	let text = fs::read_to_string(path).with_context(|| format!("couldn't read file {}", path.display()))?;
 	parse_config(&text)
+}
+
+/// Copying to tmux used to have a switch of its own, which still counts when it's in the file.
+fn tmux_clear(tmux_copy: Option<bool>, tmux_clear: Option<u64>) -> Option<Duration> {
+	match (tmux_copy, tmux_clear) {
+		(Some(false), _) => Some(Duration::ZERO),
+		(Some(true), None) => Some(Duration::from_secs(OLD_TMUX_CLEAR)),
+		(_, seconds) => seconds.map(Duration::from_secs),
+	}
 }
 
 fn parse_config(text: &str) -> anyhow::Result<Config> {
@@ -155,8 +189,7 @@ fn parse_config(text: &str) -> anyhow::Result<Config> {
 		kdf_memory: raw.kdf_memory.map(KdfMemoryValue::into_bytes).transpose()?.unwrap_or(defaults.kdf_memory),
 		auto_exit: raw.auto_exit.map(Duration::from_secs).unwrap_or(defaults.auto_exit),
 		theme: raw.theme,
-		tmux_copy: raw.tmux_copy.unwrap_or(defaults.tmux_copy),
-		tmux_clear: raw.tmux_clear.filter(|&secs| secs > 0).map(Duration::from_secs).unwrap_or(defaults.tmux_clear),
+		tmux_clear: tmux_clear(raw.tmux_copy, raw.tmux_clear).unwrap_or(defaults.tmux_clear),
 	};
 	match raw.database.or(raw.default_database) {
 		Some(database) if sftp::is_url(&database) => config.set_database(&database),
@@ -173,19 +206,20 @@ struct ConfigFileOut<'a> {
 	kdf_memory: KdfMemoryValue,
 	auto_exit: u64,
 	theme: Option<&'a str>,
-	tmux_copy: bool,
 	tmux_clear: u64,
 }
 
 pub fn save_config(config: &Config) -> anyhow::Result<()> {
-	let path = expand_tilde(CONFIGFILE);
+	save_config_at(config, &config_path())
+}
 
+fn save_config_at(config: &Config, path: &Path) -> anyhow::Result<()> {
 	if let Some(parent) = path.parent() {
 		fs::create_dir_all(parent).with_context(|| format!("couldn't create {}", parent.display()))?;
 	}
 
 	let text = serialize_config(config)?;
-	let tmp_path = sibling_tmp_path(&path);
+	let tmp_path = sibling_tmp_path(path);
 
 	let mut options = fs::OpenOptions::new();
 	options.write(true).create_new(true);
@@ -199,7 +233,7 @@ pub fn save_config(config: &Config) -> anyhow::Result<()> {
 
 		file.sync_all().with_context(|| format!("couldn't sync {}", tmp_path.display()))?;
 
-		fs::rename(&tmp_path, &path).with_context(|| format!("couldn't replace {}", path.display()))?;
+		fs::rename(&tmp_path, path).with_context(|| format!("couldn't replace {}", path.display()))?;
 
 		Ok(())
 	})();
@@ -216,14 +250,13 @@ fn serialize_config(config: &Config) -> anyhow::Result<String> {
 		database: config.database_label(),
 		keyfile: config.keyfile.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
 		kdf_iterations: config.kdf_iterations,
-		kdf_memory: if config.kdf_memory > 0 && config.kdf_memory % MIB == 0 {
+		kdf_memory: if config.kdf_memory > 0 && config.kdf_memory.is_multiple_of(MIB) {
 			KdfMemoryValue::WithUnit(format!("{}M", config.kdf_memory / MIB))
 		} else {
 			KdfMemoryValue::Bytes(config.kdf_memory)
 		},
 		auto_exit: config.auto_exit.as_secs(),
 		theme: config.theme.as_deref(),
-		tmux_copy: config.tmux_copy,
 		tmux_clear: config.tmux_clear.as_secs(),
 	};
 
@@ -232,41 +265,56 @@ fn serialize_config(config: &Config) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
-	use super::{Config, parse_config, serialize_config};
+	use super::{Config, SAMPLE_CONFIG, parse_config, serialize_config};
 	use std::path::PathBuf;
 	use std::time::Duration;
 
 	#[test]
-	fn tmux_copy_is_off_by_default() {
-		let config = parse_config("database = \"/tmp/passwords.kdbx\"").expect("config should parse");
-
-		assert!(!config.tmux_copy);
-		assert_eq!(config.tmux_clear, Duration::from_secs(30));
+	fn copying_to_tmux_is_off_by_default() {
+		for text in ["", "tmux_clear = 0", SAMPLE_CONFIG] {
+			assert_eq!(parse_config(text).expect("config should parse").tmux_clear, Duration::ZERO, "{text}");
+		}
 	}
 
 	#[test]
-	fn tmux_copy_settings_round_trip() {
-		let config = parse_config(
-			r#"
-            tmux_copy = true
-            tmux_clear = 5
-        "#,
-		)
-		.expect("config should parse");
-
-		assert!(config.tmux_copy);
+	fn tmux_clear_round_trips() {
+		let config = parse_config("tmux_clear = 5").expect("config should parse");
 		assert_eq!(config.tmux_clear, Duration::from_secs(5));
-
-		let text = serialize_config(&config).expect("config should serialize");
-		assert!(text.contains("tmux_copy = true"));
-		assert!(text.contains("tmux_clear = 5"));
+		assert!(serialize_config(&config).expect("config should serialize").contains("tmux_clear = 5"));
 	}
 
 	#[test]
-	fn tmux_clear_of_zero_falls_back_to_the_default() {
-		let config = parse_config("tmux_clear = 0").expect("config should parse");
+	fn the_old_tmux_copy_switch_still_counts() {
+		let seconds = |text| parse_config(text).expect("config should parse").tmux_clear.as_secs();
+		assert_eq!(seconds("tmux_copy = true\ntmux_clear = 12"), 12);
+		assert_eq!(seconds("tmux_copy = true"), 30);
+		assert_eq!(seconds("tmux_copy = true\ntmux_clear = 0"), 0);
+		assert_eq!(seconds("tmux_copy = false\ntmux_clear = 12"), 0);
+		let config = parse_config("tmux_copy = true\ntmux_clear = 12").expect("config should parse");
+		assert!(!serialize_config(&config).expect("config should serialize").contains("tmux_copy"));
+	}
 
-		assert_eq!(config.tmux_clear, Duration::from_secs(30));
+	#[test]
+	fn selected_file_is_created_with_defaults_and_saved_independently() {
+		let directory = std::env::temp_dir().join(format!("kptui-config-argument-{}", std::process::id()));
+		let selected = directory.join("nested/Work.toml");
+		let default_path = directory.join("nested/config.toml");
+		let initial = serialize_config(&Config::default()).unwrap();
+		let mut config = super::load_config_at(&selected, &initial).unwrap();
+		assert!(selected.is_file());
+		assert!(config.default_database.is_none());
+		assert!(config.keyfile.is_none());
+		assert_eq!(config.kdf_iterations, Config::default().kdf_iterations);
+		assert_eq!(config.kdf_memory, Config::default().kdf_memory);
+		assert_eq!(config.auto_exit, Config::default().auto_exit);
+		assert!(config.theme.is_none());
+		std::fs::write(&default_path, "unchanged").unwrap();
+		config.kdf_iterations = 42;
+		super::save_config_at(&config, &selected).unwrap();
+		let loaded = super::load_config_at(&selected, &initial).unwrap();
+		assert_eq!(loaded.kdf_iterations, 42);
+		assert_eq!(std::fs::read_to_string(default_path).unwrap(), "unchanged");
+		std::fs::remove_dir_all(directory).unwrap();
 	}
 
 	#[test]

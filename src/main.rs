@@ -7,6 +7,7 @@ mod groups;
 mod gui;
 mod import;
 mod input;
+mod readme;
 mod remote;
 mod theme;
 mod tmux;
@@ -22,10 +23,13 @@ use zeroize::Zeroizing;
 const BIN_NAME: &str = env!("CARGO_BIN_NAME");
 /// The version of this fork (https://github.com/Nibblex/kptui), after the upstream version.
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-nibblex.1");
-const USAGE: &str = concat!("Usage: ", env!("CARGO_BIN_NAME"), " [tui | slim | gui | version | help]");
+const USAGE: &str = concat!("Usage: ", env!("CARGO_BIN_NAME"), " [tui | slim | gui | readme | help | version] [NAME[.toml]]");
+const DOT: &str = "•";
 
+#[derive(Debug, PartialEq, Eq)]
 enum Command {
 	Help,
+	Readme,
 	Version,
 	Tui(bool),
 	Gui,
@@ -70,12 +74,37 @@ fn read_stdin() -> io::Result<Zeroizing<String>> {
 	Ok(Zeroizing::new(string))
 }
 
-fn parse_args(args: &[String]) -> Result<Command, String> {
+fn parse_args(args: &[String]) -> Result<(Command, Option<String>), String> {
+	let (command, remaining) = match args.first().map(|arg| parse_command(std::slice::from_ref(arg))) {
+		Some(Ok(command)) => (command, &args[1..]),
+		_ => (parse_command(&[])?, args),
+	};
+	let invalid = || format!("invalid argument(s): {}", args.join(" "));
+	let name = match remaining {
+		[] => return Ok((command, None)),
+		[name] => name,
+		_ => return Err(invalid()),
+	};
+	let filename = if config::is_config_filename(name) {
+		name.clone()
+	} else if name.starts_with('-') || name.to_ascii_lowercase().ends_with(".toml") {
+		return Err(invalid());
+	} else {
+		format!("{name}.toml")
+	};
+	if !config::is_config_filename(&filename) {
+		return Err(invalid());
+	}
+	Ok((command, Some(filename)))
+}
+
+fn parse_command(args: &[String]) -> Result<Command, String> {
 	match args {
 		[] if BIN_NAME == "kpgui" => Ok(Command::Gui),
 		[] => Ok(Command::Tui(false)),
 		[arg] if matches!(arg.as_str(), "tui" | "--tui") => Ok(Command::Tui(false)),
 		[arg, ..] if matches!(arg.as_str(), "help" | "-h" | "--help") => Ok(Command::Help),
+		[arg, ..] if matches!(arg.as_str(), "readme" | "-r" | "--readme") => Ok(Command::Readme),
 		[arg, ..] if matches!(arg.as_str(), "version" | "-V" | "--version") => Ok(Command::Version),
 		[arg] if matches!(arg.as_str(), "slim" | "-s" | "--slim") => Ok(Command::Tui(true)),
 		[arg] if matches!(arg.as_str(), "gui" | "--gui") => Ok(Command::Gui),
@@ -120,14 +149,23 @@ fn harden() {}
 fn main() -> std::process::ExitCode {
 	harden();
 	let args: Vec<String> = std::env::args().skip(1).collect();
-	let command = match parse_args(&args) {
+	let (command, filename) = match parse_args(&args) {
 		Ok(command) => command,
 		Err(error) => {
 			eprintln!("{BIN_NAME}: {error}");
 			eprintln!("{USAGE}");
+			println!("  NAME[.toml] (default: config) selects configfile ~/.config/kptui/NAME.toml");
 			return ExitCode::from(2);
 		}
 	};
+
+	if matches!(command, Command::Tui(_) | Command::Gui)
+		&& let Some(filename) = filename
+		&& let Err(err) = config::select_config(&filename).and_then(|()| config::load_config().map(|_| ()))
+	{
+		eprintln!("{BIN_NAME}: {err:#}");
+		return ExitCode::FAILURE;
+	}
 
 	match command {
 		Command::Help => {
@@ -138,15 +176,25 @@ fn main() -> std::process::ExitCode {
 			};
 			println!("{BIN_NAME} {VERSION} - {description}");
 			println!("{USAGE}");
+			println!("  NAME[.toml] (default: config) selects configfile ~/.config/kptui/NAME.toml");
 			ExitCode::SUCCESS
 		}
+
+		Command::Readme if BIN_NAME == "kpgui" => run_gui(true),
+		Command::Readme => match readme::run() {
+			Ok(()) => ExitCode::SUCCESS,
+			Err(err) => {
+				eprintln!("{BIN_NAME}: {err}");
+				ExitCode::FAILURE
+			}
+		},
 
 		Command::Version => {
 			println!("{BIN_NAME} {VERSION}");
 			ExitCode::SUCCESS
 		}
 
-		Command::Gui => run_gui(),
+		Command::Gui => run_gui(false),
 		Command::Tui(slim) => {
 			let password = match read_stdin() {
 				Ok(password) => password,
@@ -169,9 +217,9 @@ fn main() -> std::process::ExitCode {
 	}
 }
 
-fn run_gui() -> ExitCode {
+fn run_gui(_readme: bool) -> ExitCode {
 	#[cfg(all(feature = "gui", target_os = "linux", target_env = "gnu"))]
-	let result = gui::run();
+	let result = gui::run(_readme);
 	#[cfg(not(all(feature = "gui", target_os = "linux", target_env = "gnu")))]
 	let result: anyhow::Result<()> = Err(anyhow::anyhow!("GUI requires a GNU/Linux target and a build with --features gui"));
 	match result {
@@ -179,6 +227,71 @@ fn run_gui() -> ExitCode {
 		Err(err) => {
 			eprintln!("{BIN_NAME}: {err}");
 			ExitCode::FAILURE
+		}
+	}
+}
+
+#[cfg(test)]
+mod argument_tests {
+	use super::*;
+
+	fn parse(args: &[&str]) -> Result<(Command, Option<String>), String> {
+		parse_args(&args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>())
+	}
+
+	#[test]
+	fn subsequent_command_names_are_config_names() {
+		for (mode, command) in [("tui", Command::Tui(false)), ("slim", Command::Tui(true)), ("gui", Command::Gui)] {
+			for name in ["tui", "slim", "gui", "readme", "help", "version"] {
+				let (actual, filename) = parse(&[mode, name]).unwrap();
+				assert_eq!(actual, command);
+				assert_eq!(filename, Some(format!("{name}.toml")));
+			}
+		}
+		assert!(parse(&["gui", "gui", "gui"]).is_err());
+		assert!(parse(&["gui", "work", "gui"]).is_err());
+	}
+
+	#[test]
+	fn shorthand_adds_extension_and_preserves_commands() {
+		for name in ["work", "Work", "missing", "work.txt"] {
+			assert_eq!(parse(&[name]).unwrap().1, Some(format!("{name}.toml")));
+			assert_eq!(parse(&["slim", name]).unwrap(), (Command::Tui(true), Some(format!("{name}.toml"))));
+			assert!(parse(&[name, "slim"]).is_err());
+		}
+		assert_eq!(parse(&["tui"]).unwrap(), (Command::Tui(false), None));
+		assert_eq!(parse(&["help"]).unwrap(), (Command::Help, None));
+		assert_eq!(parse(&["tui.toml"]).unwrap().1.as_deref(), Some("tui.toml"));
+		for args in [vec!["work", "Work"], vec!["work", "other.toml"], vec!["work.TOML"], vec!["../work"], vec!["--unknown"]] {
+			assert!(parse(&args).is_err(), "{args:?}");
+		}
+	}
+
+	#[test]
+	fn config_argument_preserves_default_mode_and_filename_case() {
+		let default = if BIN_NAME == "kpgui" { Command::Gui } else { Command::Tui(false) };
+		assert_eq!(parse(&[]).unwrap(), (default, None));
+		for name in ["work.toml", "Work.toml"] {
+			let default = if BIN_NAME == "kpgui" { Command::Gui } else { Command::Tui(false) };
+			assert_eq!(parse(&[name]).unwrap(), (default, Some(name.to_string())));
+			for (mode, command) in [("tui", Command::Tui(false)), ("slim", Command::Tui(true)), ("gui", Command::Gui)] {
+				assert_eq!(parse(&[mode, name]).unwrap(), (command, Some(name.to_string())));
+				assert!(parse(&[name, mode]).is_err());
+			}
+		}
+	}
+
+	#[test]
+	fn rejects_duplicate_configs_and_paths() {
+		for args in [
+			vec!["one.toml", "two.toml"],
+			vec!["../work.toml"],
+			vec!["/tmp/work.toml"],
+			vec![".toml"],
+			vec!["work.TOML"],
+			vec!["work.ToMl"],
+		] {
+			assert!(parse(&args).is_err(), "{args:?}");
 		}
 	}
 }

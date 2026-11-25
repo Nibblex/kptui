@@ -12,25 +12,23 @@ use crate::input::{secret_pop, secret_push};
 use crate::theme::load_theme;
 use crate::util::expand_tilde;
 
-pub const UNLOCKED_ROW_COUNT: usize = 12;
-pub const LOCKED_ROW_COUNT: usize = 8;
+pub const UNLOCKED_ROW_COUNT: usize = 11;
+pub const LOCKED_ROW_COUNT: usize = 7;
 
 pub const DATABASE_ROW: usize = 0;
 pub const KEYFILE_ROW: usize = 1;
-pub const FORMAT_ROW: usize = 2;
-pub const ITERATIONS_ROW: usize = 3;
-pub const MEMORY_ROW: usize = 4;
-pub const CHANGE_PASSWORD_ROW: usize = 5;
-pub const AUTO_EXIT_ROW: usize = 6;
-pub const THEME_ROW: usize = 7;
-pub const TMUX_COPY_ROW: usize = 8;
-pub const TMUX_CLEAR_ROW: usize = 9;
-pub const IMPORT_ROW: usize = 10;
-pub const EXPORT_ROW: usize = 11;
+pub const ITERATIONS_ROW: usize = 2;
+pub const MEMORY_ROW: usize = 3;
+pub const AUTO_EXIT_ROW: usize = 4;
+pub const THEME_ROW: usize = 5;
+pub const TMUX_CLEAR_ROW: usize = 6;
+pub const FORMAT_ROW: usize = 7;
+pub const CHANGE_PASSWORD_ROW: usize = 8;
+pub const IMPORT_ROW: usize = 9;
+pub const EXPORT_ROW: usize = 10;
 
-pub(crate) fn settings_row(app: &App, visible_row: usize) -> usize {
-	let row = if app.login_settings && visible_row >= FORMAT_ROW { visible_row + 1 } else { visible_row };
-	if app.login_settings && row >= CHANGE_PASSWORD_ROW { row + 1 } else { row }
+pub(crate) fn settings_row(_app: &App, visible_row: usize) -> usize {
+	visible_row
 }
 
 pub(crate) fn format_save_target(app: &App) -> keepass::config::DatabaseVersion {
@@ -156,7 +154,6 @@ fn activate_selected(app: &mut App) {
 		}
 		AUTO_EXIT_ROW => start_editing_auto_exit(app),
 		THEME_ROW => start_choosing_theme(app),
-		TMUX_COPY_ROW => toggle_tmux_copy(app),
 		TMUX_CLEAR_ROW => start_editing_tmux_clear(app),
 		CHANGE_PASSWORD_ROW => start_change_password(app),
 		IMPORT_ROW => start_import(app),
@@ -366,16 +363,6 @@ fn start_editing_auto_exit(app: &mut App) {
 	app.status = None;
 }
 
-fn toggle_tmux_copy(app: &mut App) {
-	app.config.tmux_copy = !app.config.tmux_copy;
-	let state = if app.config.tmux_copy { "on" } else { "off" };
-	app.status = Some(match save_config(&app.config) {
-		Ok(()) if app.config.tmux_copy && !crate::tmux::available() => "tmux copy on (only works inside tmux)".to_string(),
-		Ok(()) => format!("tmux copy {state}"),
-		Err(err) => format!("couldn't save config: {err}"),
-	});
-}
-
 fn start_editing_tmux_clear(app: &mut App) {
 	app.field_editor = Some(FieldEditor::with_text(app.config.tmux_clear.as_secs().to_string()));
 	app.editing_field = true;
@@ -500,10 +487,6 @@ fn commit_field(app: &mut App) {
 		},
 
 		TMUX_CLEAR_ROW => match parse_seconds(&value) {
-			Ok(0) => {
-				app.status = Some("tmux clear must be at least 1 second".to_string());
-				return;
-			}
 			Ok(secs) => app.config.tmux_clear = Duration::from_secs(secs),
 			Err(err) => {
 				app.status = Some(err);
@@ -988,18 +971,17 @@ fn apply_selected_theme(app: &mut App) {
 fn settings_rows_are_contiguous() {
 	assert_eq!(DATABASE_ROW, 0);
 	assert_eq!(KEYFILE_ROW, 1);
-	assert_eq!(FORMAT_ROW, 2);
-	assert_eq!(ITERATIONS_ROW, 3);
-	assert_eq!(MEMORY_ROW, 4);
-	assert_eq!(AUTO_EXIT_ROW, 6);
-	assert_eq!(THEME_ROW, 7);
-	assert_eq!(CHANGE_PASSWORD_ROW, 5);
-	assert_eq!(TMUX_COPY_ROW, 8);
-	assert_eq!(TMUX_CLEAR_ROW, 9);
-	assert_eq!(IMPORT_ROW, 10);
-	assert_eq!(EXPORT_ROW, 11);
-	assert_eq!(UNLOCKED_ROW_COUNT, 12);
-	assert_eq!(LOCKED_ROW_COUNT, 8);
+	assert_eq!(TMUX_CLEAR_ROW, 6);
+	assert_eq!(FORMAT_ROW, 7);
+	assert_eq!(ITERATIONS_ROW, 2);
+	assert_eq!(MEMORY_ROW, 3);
+	assert_eq!(AUTO_EXIT_ROW, 4);
+	assert_eq!(THEME_ROW, 5);
+	assert_eq!(CHANGE_PASSWORD_ROW, 8);
+	assert_eq!(IMPORT_ROW, 9);
+	assert_eq!(EXPORT_ROW, 10);
+	assert_eq!(UNLOCKED_ROW_COUNT, 11);
+	assert_eq!(LOCKED_ROW_COUNT, 7);
 }
 
 #[cfg(test)]
@@ -1013,7 +995,7 @@ mod format_selection_tests {
 	fn configuration_format_action_saves_and_updates_its_label() {
 		let path = std::env::temp_dir().join(format!("kptui-config-format-{}.kdbx", std::process::id()));
 		let password = Zeroizing::new("format-test".to_string());
-		let (db, key, entries) = crate::db::create_database(&path, 1, &password, None, crate::config::DEFAULT_KDF_MEMORY).unwrap();
+		let (db, key, entries) = crate::db::create_database(&path, 1, &password, None, crate::config::MIB).unwrap();
 		let mut app = crate::app::start(false, Zeroizing::new(String::new()));
 		app.screen = Screen::Settings;
 		app.db_version = Some("KDBX4.1".to_string());
@@ -1032,7 +1014,7 @@ mod format_selection_tests {
 				.unwrap();
 			let rendered: String = frame.buffer.content.iter().map(|cell| cell.symbol()).collect();
 			assert!(rendered.contains(&format!("Save as KDBX4.{minor}")));
-			assert!(rendered.contains(&format!("Configuration KDBX4.{}", 1 - minor)));
+			assert!(rendered.contains(&format!("Configuration 'config' KDBX4.{}", 1 - minor)));
 			handle_settings_input(&mut app, KeyEvent::from(KeyCode::Enter));
 			assert_eq!(app.pending_save, Some(DatabaseVersion::KDB4(minor)));
 			crate::input::edit::process_pending_save(&mut app);
@@ -1060,7 +1042,7 @@ mod format_selection_tests {
 		for row in 0..LOCKED_ROW_COUNT {
 			assert_eq!(
 				settings_row(&app, row),
-				[DATABASE_ROW, KEYFILE_ROW, ITERATIONS_ROW, MEMORY_ROW, AUTO_EXIT_ROW, THEME_ROW, TMUX_COPY_ROW, TMUX_CLEAR_ROW][row]
+				[DATABASE_ROW, KEYFILE_ROW, ITERATIONS_ROW, MEMORY_ROW, AUTO_EXIT_ROW, THEME_ROW, TMUX_CLEAR_ROW][row]
 			);
 		}
 		app.settings_state.select(Some(2));

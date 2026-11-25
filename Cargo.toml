@@ -1,10 +1,10 @@
 [package]
 name = "kptui"
 default-run = "kptui"
-version = "0.40.0"
+version = "0.43.0"
 edition = "2024"
 rust-version = "1.95"
-description = "Highly secure TUI password manager for KeePass KDBX vaults (includes Linux GUI)"
+description = "Highly secure TUI password manager for KeePass KDBX files (+GUI)"
 authors = ["<github.com/pepa65>", "Pombo <https://github.com/pomboverso>"]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/pepa65/kptui"
@@ -46,7 +46,7 @@ wayland-client = { version = "0.31", optional = true }
 xkbcommon = { version = "0.9", features = ["wayland"], optional = true }
 
 [dependencies]
-ratatui = "0.30"
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 crossterm = "0.29"
 rustix = { version = "1", default-features = false, features = ["process"] }
 serde = { version = "1", features = ["derive"] }

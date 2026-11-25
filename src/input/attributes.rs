@@ -9,7 +9,6 @@ use zeroize::Zeroize;
 use crate::app::{App, AttributeEdit};
 use crate::db::{Attribute, is_standard_field, sort_attributes};
 use crate::input::fieldedit::{EditAction, FieldEditor};
-use crate::tmux::Copied;
 
 /// Shows the attributes of the open entry.
 pub fn open(app: &mut App) {
@@ -239,9 +238,8 @@ fn copy_selected(app: &mut App) {
 	let result = app.tmux_buffer.copy(&attribute.value, clear_after);
 	let name = &attribute.name;
 	app.status = Some(match result {
-		Ok(Copied::Clearing) => format!("{name} copied to tmux, cleared in {}s", clear_after.as_secs()),
-		Ok(Copied::Untracked) => format!("{name} copied to tmux, but can't clear it"),
-		Err(err) => format!("{name} not copied: {err:#}"),
+		Ok(()) => format!("{name} copied to tmux, cleared in {}s", clear_after.as_secs()),
+		Err(err) => format!("{name} {err:#}"),
 	});
 }
 

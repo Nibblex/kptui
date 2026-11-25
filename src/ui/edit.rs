@@ -65,7 +65,7 @@ fn field_help_items(slim_mode: bool, multiline: bool, password: Option<bool>) ->
 /// character becomes as many dots as it is wide, so the cursor and the visible
 /// part of the field editor line up just like with the password itself.
 fn masked(text: &str) -> String {
-	text.graphemes(true).map(|cluster| super::DOT.repeat(cluster.width())).collect()
+	text.graphemes(true).map(|cluster| crate::DOT.repeat(cluster.width())).collect()
 }
 
 fn split_edit_area(area: Rect, help_line_count: usize) -> (Rect, Rect) {
@@ -285,10 +285,10 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 	let selected = app.edit_state.selected().unwrap_or(0);
 	let totp_active = !(editing_field && selected == TOTP_INDEX);
 	if totp_active && app.totp_cache.as_ref().is_none_or(|c| c.expires <= Instant::now()) {
-		app.totp_cache = current_totp_code(totp_raw).map(|t| TotpCache { code: t.code, expires: Instant::now() + t.valid_for });
+		app.totp_cache = current_totp_code(totp_raw).map(|t| TotpCache { code: t.code, next: t.next, expires: Instant::now() + t.valid_for });
 	}
-	let totp_code: Option<(&str, Duration)> = if totp_active {
-		app.totp_cache.as_ref().map(|c| (c.code.as_str(), c.expires.saturating_duration_since(Instant::now())))
+	let totp_code: Option<(&str, &str, Duration)> = if totp_active {
+		app.totp_cache.as_ref().map(|c| (c.code.as_str(), c.next.as_str(), c.expires.saturating_duration_since(Instant::now())))
 	} else {
 		None
 	};
@@ -321,9 +321,7 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 	let max_notes_scroll = notes_lines.len().saturating_sub(notes_area.height as usize);
 	app.field_editor_scroll = app.field_editor_scroll.min(max_notes_scroll);
 	let totp_extra = match totp_code.as_ref() {
-		Some((_, valid_for)) => {
-			vec![Span::styled(format!(" ({}s)", valid_for.as_secs() + 1), warning)]
-		}
+		Some(_) => vec![],
 		None if totp_raw.is_empty() || (editing_field && selected == TOTP_INDEX) => {
 			vec![]
 		}
@@ -368,9 +366,15 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 
 	// Render the current TOTP code separately from the List.
 	// The otpauth URI/secret is deliberately not rendered while viewing.
-	if let Some((totp_view, _)) = totp_code.as_ref() {
+	if let Some((code, next, valid_for)) = totp_code.as_ref() {
 		let field_area = value_area(inner, TOTP_INDEX);
-		frame.render_widget(Paragraph::new(*totp_view).style(normal.bold()), field_area);
+		let line = Line::from(vec![
+			Span::styled(*code, normal.bold()),
+			Span::styled(format!("  {:>2}   (", valid_for.as_secs()), warning),
+			Span::styled(*next, warning),
+			Span::styled(")", warning),
+		]);
+		frame.render_widget(Paragraph::new(line), field_area);
 	}
 
 	// Overlay the single-line field editor when editing
@@ -451,14 +455,13 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 #[cfg(test)]
 mod mask_tests {
 	use super::{masked, nav_help_items, reveal_item};
-	use crate::ui::DOT;
 	use unicode_width::UnicodeWidthStr;
 
 	#[test]
 	fn masks_keep_the_width_of_the_password() {
 		assert_eq!(masked(""), "");
-		assert_eq!(masked("pässwörd"), DOT.repeat(8));
-		assert_eq!(masked("猫z"), DOT.repeat(3));
+		assert_eq!(masked("pässwörd"), crate::DOT.repeat(8));
+		assert_eq!(masked("猫z"), crate::DOT.repeat(3));
 		for text in ["correct horse", "猫z", "e\u{301}x"] {
 			assert_eq!(masked(text).width(), text.width(), "{text}");
 		}
@@ -521,5 +524,34 @@ mod tests {
 		assert_eq!(view.offset_at(text, 4.5, 5.0, true), Some(second + "猫".len()));
 		assert_eq!(view.offset_at(text, 3.0, 6.0, true), Some(text.len()));
 		assert_eq!(view.highlights, [Rect::new(3, 4, 10, 1), Rect::new(3, 5, 2, 1)]);
+	}
+}
+
+#[cfg(test)]
+mod totp_display_tests {
+	use super::*;
+	use ratatui::{Terminal, backend::TestBackend};
+	use zeroize::Zeroizing;
+
+	#[test]
+	fn renders_zero_seconds_and_the_next_code() {
+		let mut app = crate::app::start(false, Zeroizing::new(String::new()));
+		let mut entry = crate::db::Entry::default();
+		entry.name = "TOTP display test".to_string();
+		entry.totp = "configured".to_string();
+		app.edit_entry = Some(entry);
+		app.totp_cache = Some(TotpCache {
+			code: Zeroizing::new("123456".to_string()),
+			next: Zeroizing::new("098765".to_string()),
+			expires: Instant::now() + Duration::from_millis(900),
+		});
+		let mut terminal = Terminal::new(TestBackend::new(96, 26)).unwrap();
+		let frame = terminal
+			.draw(|frame| {
+				draw_edit(frame, &mut app);
+			})
+			.unwrap();
+		let rendered: String = frame.buffer.content.iter().map(|cell| cell.symbol()).collect();
+		assert!(rendered.contains("TOTP: 123456   0   (098765)"));
 	}
 }

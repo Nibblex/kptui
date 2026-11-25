@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/pepa65/kptui/blob/main/LICENSE.md)
 [![downloads](https://img.shields.io/crates/d/kptui.svg)](https://crates.io/crates/kptui)
 
-# kptui 0.40.0-nibblex.1
+# kptui 0.43.0-nibblex.1
 ## About this fork
 This is a fork of [pepa65/kptui](https://github.com/pepa65/kptui), which deliberately stays small.
 It adds what a KeePassXC user on a text console or over SSH may miss:
@@ -18,7 +18,7 @@ It adds what a KeePassXC user on a text console or over SSH may miss:
 
 To install it: `cargo install --git https://github.com/Nibblex/kptui --branch nibblex --locked kptui`,
 or get a binary from the [releases](https://github.com/Nibblex/kptui/releases).
-`kptui version` shows the fork's version, like `0.40.0-nibblex.1`. Everything below describes this fork,
+`kptui version` shows the fork's version, like `0.43.0-nibblex.1`. Everything below describes this fork,
 but the download links in "Installing" are upstream's.
 
 **Highly secure TUI password manager for [KeePass](https://keepass.info/) KDBX vaults (includes Linux GUI)**
@@ -64,7 +64,8 @@ but the download links in "Installing" are upstream's.
     `Ctrl-e` renames it and `Ctrl-d` deletes it. With tmux copy on, `Ctrl-y` copies the value.
   - Protected values show as dots until `Ctrl-r` shows them. `Ctrl-p` protects or unprotects an attribute.
   - `Ctrl-s` saves the entry, and `Esc` goes back to it.
-* **TOTP codes**: Generates live 2FA codes from a stored seed and saves `otpauth://` URI.
+* **TOTP codes**: Generates live 2FA codes (current and next, with countdown)
+  from a stored seed and saves `otpauth://` URI.
   - Editable as: `SECRET [DIGITS [PERIOD]]` (`PERIOD` defaults to `30`, and `DIGITS` to `6`)
 * **Auto-exit**: The whole app can close itself automatically after a set period of inactivity
   in seconds (`0`: stays open indefinitely).
@@ -85,33 +86,41 @@ but the download links in "Installing" are upstream's.
   - Changes that couldn't be uploaded stay in the local copy, and the Index title says "(not uploaded)".
     They get uploaded after the next unlock, or the next save, when the server can be reached.
   - Just opening and unlocking the database never writes to the server.
-* **Copy to tmux (opt-in)**: With `tmux_copy = true` and kptui running inside tmux, `Ctrl-y` on an entry
-  copies the selected field (or the current TOTP code) to a tmux paste buffer, to paste with `prefix ]`.
-  Useful on a text console or over SSH, where there is no system clipboard.
-  The buffer is deleted after `tmux_clear` seconds, or earlier when kptui exits.
+* **Copy to tmux** (off by default): With `tmux_clear` set and kptui running inside tmux, `Ctrl-y` on an entry copies
+  the selected field (or the current TOTP code) to a tmux paste buffer, to paste with `prefix ]`. This also works
+  while the password is hidden. tmux deletes the buffer after `tmux_clear` seconds, or earlier when kptui exits.
 * **Access Configuration from the app**: On the Login screen or the Index screen, give `Ctrl-c`:
-  - Configuration file: `~/.config/kptui/config.toml`
-  - Database (default: `~/.local/share/kptui/default.kdbx`, or an `sftp://` URL)
-  - (Optional) keyfile
-  - Auto-exit setting (in seconds, `0`: never auto-exit)
-  - Theme selection (location: `~/.config/kptui/themes/`)
-  - tmux copy on/off and the tmux buffer clear delay
-  - Change the master password
-  - Import from file
-  - Export to file
+  - Default configfile: `~/.config/kptui/config.toml`
+  - Database, or an `sftp://` URL [default: `~/.local/share/kptui/default.kdbx`]
+  - (Optional) keyfile [default: ""]
+  - KDF iterations [default: 90]
+  - KDF memory [default: 256M]
+  - Auto-exit setting (in seconds, `0`: never auto-exit) [default: 0]
+  - Theme selection (themes directory: `~/.config/kptui/themes/`)
+  - Seconds before a value copied to tmux gets deleted (`0`: no copying to tmux) [default: 0]
+  - Save as KDBX4.x [x=0 when the database version is KDBX4.1, otherwise x=1] (only from Index screen)
+  - Change the master password (only from Index screen)
+  - Import from file (only from Index screen)
+  - Export to file (only from Index screen)
 * **Import from other vaults or export**: Import entries from another `.kdbx` file, or from a `.csv`/`.json` file
   (as produced by other password managers). Export to CSV/JSON or KDBX.
+* **Documentation included**: The binaries include this full Readme, do: `kptui readme` or `kpgui -r`.
+  Scrolling with arrows, page keys, Home/End works, and q/Esc/Ctrl-C closes.
 
 ## Usage
 ```
-kptui 0.40.0 - TUI password manager for KeePass vaults
-Usage:  kptui [slim | version | help]
+kptui 0.43.0 - Highly secure TUI password manager for KeePass KDBX files (+GUI)
+Usage: kptui [tui | slim | gui | readme | help | version] [NAME[.toml]]
+  NAME[.toml] (default: config) selects configfile ~/.config/kptui/NAME.toml
 ```
+
+`kpgui -r` opens the README in the GUI; `kptui -r` uses the terminal viewer.
+
 
 ## Installing
 ### Download static single-binary `kptui` for amd64 Linux
 ```
-wget https://github.com/pepa65/kptui/releases/download/0.40.0/kptui
+wget https://github.com/pepa65/kptui/releases/download/0.43.0/kptui
 sudo mv kptui /usr/local/bin
 sudo chown root:root /usr/local/bin/kptui
 sudo chmod +x /usr/local/bin/kptui
@@ -119,14 +128,14 @@ sudo chmod +x /usr/local/bin/kptui
 
 ### Download static single-binary `kptui` for Android
 ```
-wget -O kptui https://github.com/pepa65/kptui/releases/download/0.40.0/kptui_android
+wget -O kptui https://github.com/pepa65/kptui/releases/download/0.43.0/kptui_android
 sudo chmod +x /usr/local/bin/kptui
 ```
 
 ### Download deb/rpm `kpgui` for amd64 Linux
 ```
-wget https://github.com/pepa65/kptui/releases/download/0.40.0/kpgui_0.40.0-1_amd64.deb
-wget https://github.com/pepa65/kptui/releases/download/0.40.0/kpgui_0.40.0-1.x86_64.rpm
+wget https://github.com/pepa65/kptui/releases/download/0.43.0/kpgui_0.43.0-1_amd64.deb
+wget https://github.com/pepa65/kptui/releases/download/0.43.0/kpgui_0.43.0-1.x86_64.rpm
 ```
 
 ### Install with cargo
@@ -169,16 +178,11 @@ It will be installed in `~/.cargo/bin/` which will need to be added to `PATH`!
       Also allow importing/exporting and re-encrypting the database with a different password or keyfile,
       or different KDF values for Itrerations and Memory.
 * Once unlocked, entries can be browsed, searched and opened from the Index screen.
-* To open an existing vault, set `database` in the config file at `~/.config/kptui/config.toml`.
+* To open an existing vault, set `database` in the configfile at `~/.config/kptui/config.toml`.
   - It can also be set on the Configuration screen that's accessible with `Ctrl-c` from the Login screen.
   - If a keyfile is required, that can also be set in the Config screen with `Ctrl-c` in the Login screen.
-```toml
-# Example
-database = "~/passwords.kdbx"
-keyfile = ""  # Empty means: no keyfile is set
-kdf_iterations = 90  # The default
-kdf_memory = "256M"  # 256 MiB; also accepts a byte count (unquoted!)
-```
+  - Alternative configfiles can be initiated/selected from the commandline: `kptui new` creates (or uses)
+   `~/.config/kptui/new.toml`
 * The interface requires a terminal dimensions of at least 44 colums by 24 rows (but 24x12 is still functional).
 * Run in smaller terminals with: `kptui slim` (at least 27 columns by 10 rows required, but 19x11 is still functional).
 * To show the version: `kptui version`
@@ -189,17 +193,19 @@ kdf_memory = "256M"  # 256 MiB; also accepts a byte count (unquoted!)
   - Use a file with the password: `kptui <password_file`
 
 ## Configuration
-The configuration file is at a fixed location: `~/.config/kptui/config.toml`.
-See `default_config.toml` in this repo:
+The default configuration file is `~/.config/kptui/config.toml`.
+Pass an optional filename (`.toml` is optional) to use another file in `~/.config/kptui/`, for example
+`kpgui work`, `kptui slim slim.toml`, or `kpgui default.toml` (must follow the optional 'mode' command).
+Missing files are created with default values, and configuration changes are saved to the selected file.
+See `config.toml` in this repo:
 ```toml
 database = "~/.local/share/kptui/default.kdbx"  # Or a remote one, like "sftp://me@nas/~/vault.kdbx"
 keyfile = "~/.local/share/kptui/default.keyx"  # Optional (empty for password-only vaults)
 kdf_iterations = 90  # Can be lower if less paranoid about being brute-forced
 kdf_memory = "256M"  # 256 MiB, also accepts byte count (unquoted!)
-auto_exit = 300  # Seconds of inactivity before exiting the app
-theme = "melange_dark.toml"  # Theme from ~/.local/share/kptui/themes
-tmux_copy = false  # Inside tmux, Ctrl-y on an entry copies the selected field to a tmux paste buffer
-tmux_clear = 30  # Seconds before tmux deletes the copied value (at least 1)
+auto_exit = 0  # Seconds of inactivity before exiting the app (0: never auto-exit)
+theme = "default"  # Theme in ~/.local/share/kptui/themes/
+tmux_clear = 0  # Seconds before tmux deletes a value copied with Ctrl-y (0: no copying to tmux)
 ```
 
 All fields are optional, as the above are the default values.
@@ -226,14 +232,13 @@ All fields are optional, as the above are the default values.
     so the server file never ends up half-written. The database keeps its permissions on the server.
   - Like any save by kptui, an upload only keeps what kptui stores (see above). Attachments, entry history,
     icons and tags are not kept, so other clients sharing the database lose them too.
-* Copying to tmux is off by default. When enabled, a copied value lives in the tmux server's memory until it is deleted:
+* Copying to tmux is off by default. When enabled, a copied value is in the tmux server's memory, out of kptui's control:
   - The value is piped into `tmux load-buffer -`, so it never shows up in process arguments or environments.
-  - kptui keeps track of a single buffer: copying again replaces it, and only that buffer is ever deleted.
-  - Every copy has its deletion after `tmux_clear` seconds scheduled in the tmux server (`run-shell -d`), so it
-    also happens if kptui gets killed or its pane is closed; on a normal exit kptui deletes the buffer right away.
-    This needs tmux 3.2 or newer: with an older tmux, nothing is copied.
-  - If another buffer gets created at the very same moment, kptui can't tell which one is its own:
-    it says so and leaves both alone.
+  - Only a buffer holding exactly the copied value is ever deleted, and copying again deletes the previous one.
+  - Its deletion after `tmux_clear` seconds is scheduled in the tmux server (tmux 3.2 or newer), so it also happens
+    when kptui gets killed or its pane is closed. On a normal exit kptui deletes it right away.
+  - tmux doesn't wipe the memory of a deleted buffer, so (parts of) the value can stay there until it gets reused.
+  - If tmux fails while its buffers are being listed, the status says that the value can't be cleared.
 * Passwords are hidden on screen unless shown with `Ctrl-r`, and hidden again for every entry that gets opened.
   In the GUI, a hidden password can be selected with the mouse too, so it can be copied without showing it.
 * Additional attributes keep their protection when saved, and protected values are hidden on screen until shown with `Ctrl-r`.
