@@ -7,16 +7,21 @@
 //! - An entry changed on both sides is merged field by field. When both sides
 //!   changed the same field differently, the most recently modified version
 //!   wins and the other one is added as a separate entry, with " (conflict)"
-//!   after its title, so nothing gets lost.
+//!   after its title.
 //! - An entry deleted on one side is deleted, unless the other side changed
 //!   it: a change wins over a deletion.
 //!
-//! An empty field counts the same as a missing one.
+//! Protecting an additional attribute counts as a change, too. Its text and its
+//! protection are merged separately, so these can't conflict. For the standard
+//! fields it doesn't count, as kptui sets their protection itself, and an empty
+//! one is the same as a missing one.
 
 use std::collections::{HashMap, HashSet};
 
 use keepass::Database;
 use keepass::db::{Entry, EntryId, GroupId, Times, Value, fields};
+
+use crate::db::is_standard_field;
 
 /// What the merge had to resolve.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -95,18 +100,11 @@ fn merge_fields(merged: &mut Database, id: EntryId, base: Option<&Entry>, local:
 	let mut conflict = false;
 	let mut result = HashMap::new();
 	for key in keys {
-		let base_value = base.map_or("", |base| text(base.fields.get(key)));
-		let (local_value, server_value) = (local.fields.get(key), server.fields.get(key));
-		let pick = if text(local_value) == text(server_value) || text(local_value) == base_value {
-			server_value
-		} else if text(server_value) == base_value {
-			local_value
-		} else {
-			conflict = true;
-			if local_wins { local_value } else { server_value }
-		};
-		if let Some(value) = pick {
-			result.insert(key.clone(), value.clone());
+		let base_value = base.and_then(|base| base.fields.get(key));
+		let (value, conflicts) = merge_value(key, base_value, local.fields.get(key), server.fields.get(key), local_wins);
+		conflict |= conflicts;
+		if let Some(value) = value {
+			result.insert(key.clone(), value);
 		}
 	}
 	replace(merged, id, result, Times::new());
@@ -121,12 +119,50 @@ fn merge_fields(merged: &mut Database, id: EntryId, base: Option<&Entry>, local:
 	conflict
 }
 
-fn text(value: Option<&Value<String>>) -> &str {
-	value.map_or("", |value| value.get().as_str())
+/// Merges a field. Also returns whether it conflicted.
+fn merge_value(
+	key: &str, base: Option<&Value<String>>, local: Option<&Value<String>>, server: Option<&Value<String>>, local_wins: bool,
+) -> (Option<Value<String>>, bool) {
+	let (was, here, there) = (contents(key, base), contents(key, local), contents(key, server));
+	if here == there || here == was {
+		return (server.cloned(), false);
+	}
+	if there == was {
+		return (local.cloned(), false);
+	}
+
+	let winner = if local_wins { local } else { server };
+	let (Some((here_text, here_protected)), Some((there_text, there_protected))) = (here, there) else {
+		return (winner.cloned(), true);
+	};
+	let (text, conflict) = if here_text == there_text || was.is_some_and(|(text, _)| text == here_text) {
+		(there_text, false)
+	} else if was.is_some_and(|(text, _)| text == there_text) {
+		(here_text, false)
+	} else {
+		(if local_wins { here_text } else { there_text }, true)
+	};
+	if is_standard_field(key) {
+		return (winner.cloned(), conflict);
+	}
+	let protected = match was {
+		_ if here_protected == there_protected => here_protected,
+		// They differ, so one of them changed it.
+		Some((_, protected)) => !protected,
+		None => true,
+	};
+	(Some(if protected { Value::protected(text) } else { Value::unprotected(text) }), conflict)
+}
+
+/// What counts as the contents of a field: its text, and whether it's protected.
+fn contents<'a>(key: &str, value: Option<&'a Value<String>>) -> Option<(&'a str, bool)> {
+	let value = value?;
+	let text = value.get().as_str();
+	if is_standard_field(key) { (!text.is_empty()).then_some((text, false)) } else { Some((text, value.is_protected())) }
 }
 
 fn same_entry(a: &Entry, b: &Entry) -> bool {
-	a.fields.keys().chain(b.fields.keys()).all(|key| text(a.fields.get(key)) == text(b.fields.get(key)))
+	a.fields.keys().chain(b.fields.keys()).all(|key| contents(key, a.fields.get(key)) == contents(key, b.fields.get(key)))
 }
 
 /// The group of every entry.
@@ -303,5 +339,84 @@ mod tests {
 		let (merged, report) = merge(Some(&base), &local, &server);
 		assert_eq!(report.conflicts, 0);
 		assert_eq!(get(&merged, id, fields::NOTES).as_deref(), Some("server notes"));
+	}
+
+	const PIN: &str = "PIN";
+
+	/// Like `setup`, with an unprotected attribute.
+	fn setup_pin() -> (Database, Database, Database, EntryId) {
+		let (mut base, _, _, id) = setup();
+		base.entry_mut(id).expect("entry should exist").set_unprotected(PIN, "1234");
+		(base.clone(), base.clone(), base, id)
+	}
+
+	fn pin(db: &Database, id: EntryId) -> Option<(String, bool)> {
+		db.entry(id).and_then(|entry| entry.fields.get(PIN).map(|value| (value.get().clone(), value.is_protected())))
+	}
+
+	#[test]
+	fn protecting_an_attribute_is_a_change() {
+		let protected = Some(("1234".to_string(), true));
+
+		// Protected here, and another field changed on the server.
+		let (base, mut local, mut server, id) = setup_pin();
+		set(&mut local, id, PIN, "1234");
+		set(&mut server, id, fields::NOTES, "server notes");
+		let (merged, report) = merge(Some(&base), &local, &server);
+		assert_eq!((pin(&merged, id), report), (protected.clone(), Report::default()));
+		assert_eq!(get(&merged, id, fields::NOTES).as_deref(), Some("server notes"));
+
+		// The other way around.
+		let (merged, report) = merge(Some(&base), &server, &local);
+		assert_eq!((pin(&merged, id), report), (protected.clone(), Report::default()));
+
+		// Nothing else changed on the server.
+		let (merged, _) = merge(Some(&base), &local, &base);
+		assert_eq!(pin(&merged, id), protected);
+
+		// Deleted on the server: a change wins over a deletion.
+		server.entry_mut(id).expect("entry should exist").remove();
+		let (merged, report) = merge(Some(&base), &local, &server);
+		assert_eq!((pin(&merged, id), report.kept), (protected, 1));
+	}
+
+	#[test]
+	fn the_text_and_the_protection_of_an_attribute_are_merged_separately() {
+		let (base, mut local, mut server, id) = setup_pin();
+		set(&mut local, id, PIN, "1234");
+		server.entry_mut(id).expect("entry should exist").set_unprotected(PIN, "5678");
+		for (local, server) in [(&local, &server), (&server, &local)] {
+			let (merged, report) = merge(Some(&base), local, server);
+			assert_eq!((pin(&merged, id), report.conflicts), (Some(("5678".to_string(), true)), 0));
+		}
+
+		// Both added it, differently: protected is the safe choice.
+		let (base, mut local, mut server, id) = setup();
+		local.entry_mut(id).expect("entry should exist").set_unprotected(PIN, "1234");
+		set(&mut server, id, PIN, "1234");
+		let (merged, report) = merge(Some(&base), &local, &server);
+		assert_eq!((pin(&merged, id), report.conflicts), (Some(("1234".to_string(), true)), 0));
+	}
+
+	#[test]
+	fn an_empty_attribute_is_not_the_same_as_a_missing_one() {
+		let (base, mut local, mut server, id) = setup();
+		local.entry_mut(id).expect("entry should exist").set_unprotected(PIN, "");
+		set(&mut server, id, fields::NOTES, "server notes");
+		let (merged, _) = merge(Some(&base), &local, &server);
+		assert_eq!(pin(&merged, id), Some((String::new(), false)));
+	}
+
+	#[test]
+	fn the_protection_of_standard_fields_does_not_count() {
+		// Any save by kptui protects the notes, which must not undo a deletion elsewhere.
+		let (mut base, _, _, id) = setup();
+		base.entry_mut(id).expect("entry should exist").set_unprotected(fields::NOTES, "notes");
+		let (mut local, mut server) = (base.clone(), base.clone());
+		set(&mut local, id, fields::NOTES, "notes");
+		server.entry_mut(id).expect("entry should exist").remove();
+		let (merged, report) = merge(Some(&base), &local, &server);
+		assert!(merged.entry(id).is_none());
+		assert_eq!(report, Report::default());
 	}
 }
