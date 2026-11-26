@@ -22,7 +22,7 @@ use zeroize::Zeroizing;
 
 const BIN_NAME: &str = env!("CARGO_BIN_NAME");
 /// The version of this fork (https://github.com/Nibblex/kptui), after the upstream version.
-const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-nibblex.2");
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-nibblex.1");
 const USAGE: &str = concat!("Usage: ", env!("CARGO_BIN_NAME"), " [tui | slim | gui | readme | help | version] [NAME[.toml]]");
 const DOT: &str = "•";
 
@@ -159,12 +159,13 @@ fn main() -> std::process::ExitCode {
 		}
 	};
 
-	if matches!(command, Command::Tui(_) | Command::Gui)
-		&& let Some(filename) = filename
-		&& let Err(err) = config::select_config(&filename).and_then(|()| config::load_config().map(|_| ()))
-	{
-		eprintln!("{BIN_NAME}: {err:#}");
-		return ExitCode::FAILURE;
+	if matches!(command, Command::Tui(_) | Command::Gui) {
+		// Report configuration errors before reading stdin or entering raw mode.
+		let config = filename.as_deref().map_or(Ok(()), config::select_config).and_then(|()| config::load_config().map(|_| ()));
+		if let Err(err) = config {
+			eprintln!("{BIN_NAME}: {err:#}");
+			return ExitCode::FAILURE;
+		}
 	}
 
 	match command {
@@ -184,7 +185,7 @@ fn main() -> std::process::ExitCode {
 		Command::Readme => match readme::run() {
 			Ok(()) => ExitCode::SUCCESS,
 			Err(err) => {
-				eprintln!("{BIN_NAME}: {err}");
+				eprintln!("{BIN_NAME}: {err:#}");
 				ExitCode::FAILURE
 			}
 		},
@@ -208,7 +209,7 @@ fn main() -> std::process::ExitCode {
 			let result = app::run(&mut guard.terminal, slim, password);
 			drop(guard);
 			if let Err(err) = result {
-				eprintln!("{BIN_NAME}: {err}");
+				eprintln!("{BIN_NAME}: {err:#}");
 				ExitCode::FAILURE
 			} else {
 				ExitCode::SUCCESS
@@ -225,7 +226,7 @@ fn run_gui(_readme: bool) -> ExitCode {
 	match result {
 		Ok(()) => ExitCode::SUCCESS,
 		Err(err) => {
-			eprintln!("{BIN_NAME}: {err}");
+			eprintln!("{BIN_NAME}: {err:#}");
 			ExitCode::FAILURE
 		}
 	}

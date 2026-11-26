@@ -20,12 +20,40 @@ pub const KEYFILE_ROW: usize = 1;
 pub const ITERATIONS_ROW: usize = 2;
 pub const MEMORY_ROW: usize = 3;
 pub const AUTO_EXIT_ROW: usize = 4;
-pub const THEME_ROW: usize = 5;
-pub const TMUX_CLEAR_ROW: usize = 6;
+pub const THEME_ROW: usize = 6;
+pub const TMUX_CLEAR_ROW: usize = 5;
 pub const FORMAT_ROW: usize = 7;
 pub const CHANGE_PASSWORD_ROW: usize = 8;
 pub const IMPORT_ROW: usize = 9;
 pub const EXPORT_ROW: usize = 10;
+
+pub(crate) fn setting_key(row: usize) -> Option<&'static str> {
+	match row {
+		DATABASE_ROW => Some("database"),
+		KEYFILE_ROW => Some("keyfile"),
+		ITERATIONS_ROW => Some("kdf_iterations"),
+		MEMORY_ROW => Some("kdf_memory"),
+		AUTO_EXIT_ROW => Some("auto_exit"),
+		THEME_ROW => Some("theme"),
+		TMUX_CLEAR_ROW => Some("clear_tmux"),
+		_ => None,
+	}
+}
+
+fn save_setting(app: &mut App, key: &str) {
+	app.status = Some(if app.config.is_recovering() {
+		match crate::config::repair_config_field(&mut app.config, key) {
+			Ok(Some(_)) => "Configuration repaired and saved; original backed up".to_string(),
+			Ok(None) => app.config.recovery_message().unwrap(),
+			Err(error) => format!("Not saved: {error:#}"),
+		}
+	} else {
+		match save_config(&app.config) {
+			Ok(()) => "saved".to_string(),
+			Err(error) => format!("couldn't save config: {error:#}"),
+		}
+	});
+}
 
 pub(crate) fn settings_row(_app: &App, visible_row: usize) -> usize {
 	visible_row
@@ -110,6 +138,10 @@ pub fn handle_settings_input(app: &mut App, key: KeyEvent) {
 
 		KeyCode::Esc => {
 			app.status = None;
+			if app.config.is_recovering() {
+				app.should_quit = true;
+				return;
+			}
 			if app.login_settings {
 				// Return to Login without exiting the application.
 				app.screen = Screen::Login;
@@ -154,7 +186,11 @@ fn activate_selected(app: &mut App) {
 		}
 		AUTO_EXIT_ROW => start_editing_auto_exit(app),
 		THEME_ROW => start_choosing_theme(app),
-		TMUX_CLEAR_ROW => start_editing_tmux_clear(app),
+		TMUX_CLEAR_ROW => {
+			app.field_editor = Some(FieldEditor::with_text(app.config.clear_tmux.as_secs().to_string()));
+			app.editing_field = true;
+			app.status = None;
+		}
 		CHANGE_PASSWORD_ROW => start_change_password(app),
 		IMPORT_ROW => start_import(app),
 		EXPORT_ROW => start_export(app),
@@ -363,12 +399,6 @@ fn start_editing_auto_exit(app: &mut App) {
 	app.status = None;
 }
 
-fn start_editing_tmux_clear(app: &mut App) {
-	app.field_editor = Some(FieldEditor::with_text(app.config.tmux_clear.as_secs().to_string()));
-	app.editing_field = true;
-	app.status = None;
-}
-
 fn handle_field_input(app: &mut App, key: KeyEvent) {
 	let Some(editor) = app.field_editor.as_mut() else {
 		app.editing_field = false;
@@ -409,10 +439,8 @@ fn commit_field(app: &mut App) {
 			}
 			app.db_version = app.config.default_database.as_deref().and_then(crate::db::kdbx_version);
 			if let Some(note) = app.remote.note.clone() {
-				app.status = Some(match save_config(&app.config) {
-					Ok(()) => format!("saved. {note}"),
-					Err(err) => format!("couldn't save config: {err}"),
-				});
+				save_setting(app, "database");
+				app.status = app.status.take().map(|status| format!("{status}. {note}"));
 				return;
 			}
 		}
@@ -431,10 +459,7 @@ fn commit_field(app: &mut App) {
 				Some(path)
 			};
 			app.config.keyfile = keyfile;
-			app.status = Some(match save_config(&app.config) {
-				Ok(()) => "keyfile configuration saved".to_string(),
-				Err(err) => format!("couldn't save config: {err}"),
-			});
+			save_setting(app, "keyfile");
 			return;
 		}
 
@@ -486,21 +511,29 @@ fn commit_field(app: &mut App) {
 			}
 		},
 
-		TMUX_CLEAR_ROW => match parse_seconds(&value) {
-			Ok(secs) => app.config.tmux_clear = Duration::from_secs(secs),
-			Err(err) => {
-				app.status = Some(err);
+		TMUX_CLEAR_ROW => {
+			let secs = match parse_seconds(&value) {
+				Ok(secs) if secs <= crate::tmux::MAX_CLEAR_SECONDS => secs,
+				_ => {
+					app.status = Some("Clear-tmux must be 0–86400 seconds (0 disables copying)".to_string());
+					return;
+				}
+			};
+			app.config.clear_tmux = Duration::from_secs(secs);
+			if secs == 0
+				&& let Err(error) = app.tmux_buffer.clear()
+			{
+				let saved = save_config(&app.config);
+				app.status = Some(format!("tmux copying disabled; cleanup failed: {error:#}{}", if saved.is_ok() { "" } else { "; config not saved" }));
 				return;
 			}
-		},
-
+		}
 		_ => return,
 	}
 
-	app.status = Some(match save_config(&app.config) {
-		Ok(()) => "saved".to_string(),
-		Err(err) => format!("couldn't save config: {err}"),
-	});
+	if let Some(key) = setting_key(selected) {
+		save_setting(app, key);
+	}
 }
 
 fn parse_kdf_iterations(value: &str) -> Result<u64, String> {
@@ -955,10 +988,7 @@ fn apply_selected_theme(app: &mut App) {
 			app.theme = theme;
 			app.config.theme = Some(crate::theme::slugify(&name));
 
-			app.status = Some(match save_config(&app.config) {
-				Ok(()) => format!("theme set to {name}"),
-				Err(err) => format!("theme applied, but couldn't save config: {err}"),
-			});
+			save_setting(app, "theme");
 		}
 
 		Err(err) => {
@@ -971,12 +1001,12 @@ fn apply_selected_theme(app: &mut App) {
 fn settings_rows_are_contiguous() {
 	assert_eq!(DATABASE_ROW, 0);
 	assert_eq!(KEYFILE_ROW, 1);
-	assert_eq!(TMUX_CLEAR_ROW, 6);
+	assert_eq!(TMUX_CLEAR_ROW, 5);
 	assert_eq!(FORMAT_ROW, 7);
 	assert_eq!(ITERATIONS_ROW, 2);
 	assert_eq!(MEMORY_ROW, 3);
 	assert_eq!(AUTO_EXIT_ROW, 4);
-	assert_eq!(THEME_ROW, 5);
+	assert_eq!(THEME_ROW, 6);
 	assert_eq!(CHANGE_PASSWORD_ROW, 8);
 	assert_eq!(IMPORT_ROW, 9);
 	assert_eq!(EXPORT_ROW, 10);
@@ -1042,7 +1072,7 @@ mod format_selection_tests {
 		for row in 0..LOCKED_ROW_COUNT {
 			assert_eq!(
 				settings_row(&app, row),
-				[DATABASE_ROW, KEYFILE_ROW, ITERATIONS_ROW, MEMORY_ROW, AUTO_EXIT_ROW, THEME_ROW, TMUX_CLEAR_ROW][row]
+				[DATABASE_ROW, KEYFILE_ROW, ITERATIONS_ROW, MEMORY_ROW, AUTO_EXIT_ROW, TMUX_CLEAR_ROW, THEME_ROW][row]
 			);
 		}
 		app.settings_state.select(Some(2));
@@ -1155,5 +1185,69 @@ mod memory_setting_tests {
 			_ => panic!("expected Argon2"),
 		}
 		std::fs::remove_file(path).unwrap();
+	}
+}
+
+#[cfg(test)]
+mod recovery_tests {
+	use super::*;
+	use zeroize::Zeroizing;
+
+	#[test]
+	fn recovery_can_correct_every_config_field_including_theme() {
+		let path = crate::util::expand_tilde("~/.config/kptui/config.toml");
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		let original = "database = 1\nkeyfile = 2\nkdf_iterations = -3\nkdf_memory = \"bad\"\nauto_exit = -1\ntheme = 7\n";
+		std::fs::write(&path, original).unwrap();
+		let mut app = crate::app::try_start(false, Zeroizing::new(String::new())).unwrap();
+		for (row, value) in [
+			(DATABASE_ROW, "/keep/vault.kdbx"),
+			(KEYFILE_ROW, ""),
+			(ITERATIONS_ROW, "5"),
+			(MEMORY_ROW, "1"),
+			(AUTO_EXIT_ROW, "0"),
+		] {
+			app.settings_state.select(Some(row));
+			handle_settings_input(&mut app, KeyEvent::from(KeyCode::Enter));
+			app.field_editor = Some(FieldEditor::with_text(value));
+			handle_settings_input(&mut app, KeyEvent::from(KeyCode::Enter));
+			assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+		}
+		app.settings_state.select(Some(THEME_ROW));
+		handle_settings_input(&mut app, KeyEvent::from(KeyCode::Enter));
+		assert!(app.choosing_theme);
+		handle_settings_input(&mut app, KeyEvent::from(KeyCode::Enter));
+		assert!(!app.config.is_recovering());
+		assert!(crate::config::load_config().unwrap().theme.is_some());
+	}
+
+	#[test]
+	fn configuration_edits_repair_values_without_saving_early() {
+		let path = crate::util::expand_tilde("~/.config/kptui/config.toml");
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		let original = "auto_exit = -1\nkdf_memory = \"bad\"\n";
+		std::fs::write(&path, original).unwrap();
+		let mut app = crate::app::try_start(false, Zeroizing::new(String::new())).unwrap();
+		let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(96, 26)).unwrap();
+		let frame = terminal
+			.draw(|frame| {
+				crate::app::draw(frame, &mut app);
+			})
+			.unwrap();
+		let rendered: String = frame.buffer.content.iter().map(|cell| cell.symbol()).collect();
+		assert!(rendered.contains("(invalid, [Enter] to correct)"));
+		for (row, value) in [(AUTO_EXIT_ROW, "17"), (MEMORY_ROW, "2")] {
+			app.settings_state.select(Some(row));
+			handle_settings_input(&mut app, KeyEvent::from(KeyCode::Enter));
+			app.field_editor = Some(FieldEditor::with_text(value));
+			handle_settings_input(&mut app, KeyEvent::from(KeyCode::Enter));
+			if row == AUTO_EXIT_ROW {
+				assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+			}
+		}
+		assert!(!app.config.is_recovering());
+		assert_eq!(crate::config::load_config().unwrap().auto_exit.as_secs(), 17);
+		handle_settings_input(&mut app, KeyEvent::from(KeyCode::Esc));
+		assert!(app.screen == Screen::Login && !app.should_quit);
 	}
 }

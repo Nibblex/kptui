@@ -234,12 +234,12 @@ fn copy_selected(app: &mut App) {
 		app.status = Some(format!("{} is empty, nothing copied", attribute.name));
 		return;
 	}
-	let clear_after = app.config.tmux_clear;
+	let clear_after = app.config.clear_tmux;
 	let result = app.tmux_buffer.copy(&attribute.value, clear_after);
 	let name = &attribute.name;
 	app.status = Some(match result {
-		Ok(()) => format!("{name} copied to tmux, cleared in {}s", clear_after.as_secs()),
-		Err(err) => format!("{name} {err:#}"),
+		Ok(()) => format!("{name} copied to tmux; expires in {}s", clear_after.as_secs()),
+		Err(error) => format!("{name} not copied: {error:#}"),
 	});
 }
 

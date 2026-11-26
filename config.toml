@@ -13,9 +13,8 @@ kdf_memory = "256M"
 # Seconds of inactivity before exiting the app (0: never auto-exit) [default: 0]
 auto_exit = 0
 
+# Seconds to expiry of the tmux buffer after Ctrl-c on the Entry screen (0: disabled)
+clear_tmux = 0
+
 # Name of a theme installed in ~/.config/kptui/themes/
 theme = "default"
-
-# Inside tmux, Ctrl-c on an entry copies the selected field to a tmux paste buffer,
-# which tmux deletes after this number of seconds (0: no copying to tmux) [default: 0]
-tmux_clear = 0

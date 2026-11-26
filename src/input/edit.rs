@@ -5,7 +5,7 @@ use keepass::config::DatabaseVersion;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::app::{App, Screen, TotpCache};
-use crate::db::{current_totp_code, parse_totp_edit_value, save_database_as, totp_edit_value};
+use crate::db::{parse_totp_edit_value, save_database_as, totp_edit_value};
 use crate::input::command::preview_entry;
 use crate::input::fieldedit::{EditAction, FieldEditor};
 
@@ -44,8 +44,10 @@ pub fn handle_edit_input(app: &mut App, key: KeyEvent) {
 	}
 
 	match key.code {
-		KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => request_save(app),
-		KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) && app.tmux_copy() => copy_selected_field(app),
+		KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+			request_save(app);
+		}
+		KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL) && app.tmux_copy() => copy_selected_field(app),
 		_ if is_reveal_key(&key) => {
 			app.status = None;
 			app.show_password = !app.show_password;
@@ -67,6 +69,32 @@ pub fn handle_edit_input(app: &mut App, key: KeyEvent) {
 			}
 		}
 	}
+}
+
+fn copy_selected_field(app: &mut App) {
+	let selected = app.edit_state.selected().unwrap_or(0);
+	let Some(entry) = app.edit_entry.as_ref() else { return };
+	if selected == TOTP_INDEX && app.totp_cache.as_ref().is_none_or(|cache| cache.expires <= Instant::now()) {
+		app.totp_cache =
+			crate::db::current_totp_code(&entry.totp).map(|code| TotpCache { code: code.code, next: code.next, expires: Instant::now() + code.valid_for });
+	}
+	let (label, value) = match selected {
+		NAME_INDEX => ("Name", entry.name.as_str()),
+		USER_INDEX => ("User", entry.user.as_str()),
+		PASSWORD_INDEX => ("Password", entry.password.as_str()),
+		URL_INDEX => ("URL", entry.url.as_str()),
+		TOTP_INDEX => ("TOTP", app.totp_cache.as_ref().map_or("", |cache| cache.code.as_str())),
+		NOTES_INDEX => ("Notes", entry.notes.as_str()),
+		_ => return,
+	};
+	app.status = Some(if value.is_empty() {
+		format!("{label} is empty, nothing copied")
+	} else {
+		match app.tmux_buffer.copy(value, app.config.clear_tmux) {
+			Ok(()) => format!("{label} copied to tmux; expires in {}s", app.config.clear_tmux.as_secs()),
+			Err(error) => format!("{label} not copied: {error:#}"),
+		}
+	});
 }
 
 fn move_selection(app: &mut App, delta: i32) {
@@ -117,39 +145,6 @@ fn start_editing_field(app: &mut App) {
 
 	app.editing_field = true;
 	app.status = None;
-}
-
-fn copy_selected_field(app: &mut App) {
-	let selected = app.edit_state.selected().unwrap_or(0);
-	let Some(entry) = app.edit_entry.as_ref() else {
-		return;
-	};
-
-	// The code on screen may have expired since the last redraw.
-	if selected == TOTP_INDEX && app.totp_cache.as_ref().is_none_or(|cache| cache.expires <= Instant::now()) {
-		app.totp_cache = current_totp_code(&entry.totp).map(|t| TotpCache { code: t.code, next: t.next, expires: Instant::now() + t.valid_for });
-	}
-
-	let (label, value) = match selected {
-		NAME_INDEX => ("Name", entry.name.as_str()),
-		USER_INDEX => ("User", entry.user.as_str()),
-		PASSWORD_INDEX => ("Password", entry.password.as_str()),
-		URL_INDEX => ("URL", entry.url.as_str()),
-		TOTP_INDEX => ("TOTP code", app.totp_cache.as_ref().map_or("", |cache| cache.code.as_str())),
-		NOTES_INDEX => ("Notes", entry.notes.as_str()),
-		_ => return,
-	};
-
-	if value.is_empty() {
-		app.status = Some(format!("{label} is empty, nothing copied"));
-		return;
-	}
-
-	let clear_after = app.config.tmux_clear;
-	app.status = Some(match app.tmux_buffer.copy(value, clear_after) {
-		Ok(()) => format!("{label} copied to tmux, cleared in {}s", clear_after.as_secs()),
-		Err(err) => format!("{label} {err:#}"),
-	});
 }
 
 fn handle_field_input(app: &mut App, key: KeyEvent) {

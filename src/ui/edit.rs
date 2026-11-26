@@ -34,7 +34,7 @@ fn reveal_item(slim_mode: bool, show_password: bool) -> &'static str {
 	}
 }
 
-fn nav_help_items(slim_mode: bool, tmux_copy: bool, show_password: bool) -> Vec<&'static str> {
+fn nav_help_items(slim_mode: bool, show_password: bool, tmux_copy: bool) -> Vec<&'static str> {
 	let reveal = reveal_item(slim_mode, show_password);
 	let mut items = if slim_mode {
 		vec!["[PgUpDn]", "[Enter]", reveal, "[^s]", "[Esc]"]
@@ -77,7 +77,7 @@ fn split_edit_area(area: Rect, help_line_count: usize) -> (Rect, Rect) {
 #[cfg(all(feature = "gui", target_os = "linux", target_env = "gnu"))]
 pub(crate) fn field_at_position(area: Rect, slim_mode: bool, tmux_copy: bool, column: f64, row: u16) -> Option<(usize, bool)> {
 	// The help wraps the same whether the password is shown (see `reveal_item`).
-	let help_lines = wrap_help_items(&nav_help_items(slim_mode, tmux_copy, false), area.width);
+	let help_lines = wrap_help_items(&nav_help_items(slim_mode, false, tmux_copy), area.width);
 	let (body, _) = split_edit_area(area, help_lines.len());
 	let inner = body.inner(Margin { horizontal: 0, vertical: 1 });
 	let field = usize::from(row.checked_sub(inner.y)?).min(NOTES_INDEX);
@@ -216,7 +216,7 @@ pub(crate) fn readonly_view<'a>(area: Rect, app: &'a App, field: usize, selectio
 		return None;
 	}
 
-	let help_lines = wrap_help_items(&nav_help_items(app.slim_mode, app.tmux_copy(), app.show_password), area.width);
+	let help_lines = wrap_help_items(&nav_help_items(app.slim_mode, app.show_password, app.tmux_copy()), area.width);
 	let (body, _) = split_edit_area(area, help_lines.len());
 	let inner = body.inner(Margin { horizontal: 0, vertical: 1 });
 	let view = if field == NOTES_INDEX {
@@ -296,13 +296,13 @@ pub fn draw_edit(frame: &mut Frame, app: &mut App) -> Option<EditView> {
 	let label_style = Style::new().fg(theme.header).bold();
 	let normal = Style::new().fg(theme.text);
 	let warning = Style::new().fg(theme.warning);
-	let placeholder = Style::new().fg(theme.text).bold();
+	let placeholder = warning;
 	let editing_style = Style::new().fg(theme.selection_fg).bg(theme.selection_bg);
 	let accent_style = Style::new().fg(theme.selection_fg).bg(theme.accent);
 	let help_items = if editing_field {
 		field_help_items(app.slim_mode, selected == NOTES_INDEX, (selected == PASSWORD_INDEX).then_some(app.show_password))
 	} else {
-		nav_help_items(app.slim_mode, app.tmux_copy(), app.show_password)
+		nav_help_items(app.slim_mode, app.show_password, app.tmux_copy())
 	};
 	let help_width = full_area.width;
 	let help_lines = wrap_help_items(&help_items, help_width);
@@ -472,7 +472,7 @@ mod mask_tests {
 		for slim in [false, true] {
 			assert_eq!(reveal_item(slim, false).width(), reveal_item(slim, true).width());
 			for tmux in [false, true] {
-				assert_eq!(nav_help_items(slim, tmux, false).concat().width(), nav_help_items(slim, tmux, true).concat().width());
+				assert_eq!(nav_help_items(slim, false, tmux).concat().width(), nav_help_items(slim, true, tmux).concat().width());
 			}
 		}
 	}

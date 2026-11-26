@@ -12,7 +12,7 @@ use ratatui::{
 	style::Style,
 	widgets::{Block, ListState, Paragraph, TableState, Wrap},
 };
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::config::{Config, load_config};
 use crate::db::Entry;
@@ -175,7 +175,7 @@ pub struct App {
 impl App {
 	/// Whether Control-C copies entry fields to a tmux paste buffer.
 	pub fn tmux_copy(&self) -> bool {
-		!self.config.tmux_clear.is_zero() && crate::tmux::available()
+		!self.config.clear_tmux.is_zero() && crate::tmux::available()
 	}
 
 	fn compute_filtered(&self) -> Vec<usize> {
@@ -281,18 +281,24 @@ pub fn maybe_auto_exit(app: &mut App) {
 	app.should_quit = true;
 }
 
-#[cfg(any(test, all(feature = "gui", target_os = "linux", target_env = "gnu")))]
+// Test convenience: invalid test configurations are failures, never defaults.
+#[cfg(test)]
 pub fn start(slim_mode: bool, password: Zeroizing<String>) -> App {
-	let mut app = new_app(slim_mode, password);
+	try_start(slim_mode, password).expect("test configuration should load")
+}
+
+#[cfg(any(test, all(feature = "gui", target_os = "linux", target_env = "gnu")))]
+pub fn try_start(slim_mode: bool, password: Zeroizing<String>) -> anyhow::Result<App> {
+	let mut app = new_app(slim_mode, password)?;
 	open_database(&mut app);
-	app
+	Ok(app)
 }
 
 /// Sets up the app from the config, without touching the database yet.
-fn new_app(slim_mode: bool, password: Zeroizing<String>) -> App {
+fn new_app(slim_mode: bool, password: Zeroizing<String>) -> anyhow::Result<App> {
+	let mut config = load_config()?;
 	let _ = crate::theme::ensure_default_themes();
-	let mut config = load_config().unwrap_or_default();
-	if config.default_database.is_none() {
+	if !config.is_recovering() && config.default_database.is_none() {
 		let default_path = crate::util::default_new_database_path();
 		if default_path.is_file() {
 			config.default_database = Some(default_path);
@@ -300,7 +306,7 @@ fn new_app(slim_mode: bool, password: Zeroizing<String>) -> App {
 		}
 	}
 	let theme = load_theme(config.theme.as_deref()).unwrap_or_default();
-	App {
+	Ok(App {
 		screen: Screen::Login,
 		login_settings: false,
 		db_version: None,
@@ -369,13 +375,21 @@ fn new_app(slim_mode: bool, password: Zeroizing<String>) -> App {
 		slim_mode,
 		remote: crate::remote::SyncState::default(),
 		tmux_buffer: crate::tmux::TmuxBuffer::default(),
-	}
+	})
 }
 
 /// Updates a remote database's local copy, and unlocks it with a piped-in password.
+/// With an invalid config, this opens the Config screen instead of unlocking.
 fn open_database(app: &mut App) {
 	crate::remote::open(app);
 	app.db_version = app.config.default_database.as_deref().and_then(crate::db::kdbx_version);
+	if app.config.is_recovering() {
+		app.password.zeroize();
+		crate::input::command::open_settings(app);
+		app.login_settings = true;
+		app.status = app.config.recovery_message();
+		return;
+	}
 	if !app.password.is_empty() {
 		if database_missing(app) {
 			create_database_with_password(app);
@@ -421,7 +435,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 }
 
 pub fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, slim_mode: bool, password: Zeroizing<String>) -> io::Result<()> {
-	let mut app = new_app(slim_mode, password);
+	let mut app = new_app(slim_mode, password).map_err(|error| io::Error::other(format!("{error:#}")))?;
 	if let Some(remote) = app.config.remote.as_ref() {
 		let url = remote.url().to_string();
 		terminal.draw(|frame| draw_connecting(frame, &app, &url))?;
@@ -490,4 +504,39 @@ pub fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, slim_mode: boo
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod startup_tests {
+	use super::*;
+
+	#[test]
+	fn malformed_toml_never_gets_replaced_even_when_default_vault_exists() {
+		let path = crate::util::expand_tilde("~/.config/kptui/config.toml");
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		let vault = crate::util::default_new_database_path();
+		std::fs::create_dir_all(vault.parent().unwrap()).unwrap();
+		std::fs::write(&vault, b"existing vault sentinel").unwrap();
+		let text = "database = [\n";
+		std::fs::write(&path, text).unwrap();
+		assert!(try_start(false, Zeroizing::new(String::new())).is_err());
+		assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+		assert_eq!(std::fs::read(&vault).unwrap(), b"existing vault sentinel");
+	}
+
+	#[test]
+	fn invalid_values_open_configuration_and_esc_does_not_unlock() {
+		let path = crate::util::expand_tilde("~/.config/kptui/config.toml");
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		let text = "auto_exit = -1\ndatabase = \"/keep/vault.kdbx\"\n";
+		std::fs::write(&path, text).unwrap();
+		let mut app = try_start(false, Zeroizing::new("unused password".to_string())).unwrap();
+		assert!(app.screen == Screen::Settings && app.login_settings);
+		assert!(app.password.is_empty());
+		assert!(app.config.field_invalid("auto_exit"));
+		assert!(crate::config::save_config(&app.config).is_err());
+		handle_key(&mut app, crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Esc));
+		assert!(app.should_quit);
+		assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+	}
 }

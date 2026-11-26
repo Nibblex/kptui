@@ -89,7 +89,7 @@ impl Session {
 		let viewport = Viewport::new(size);
 		Ok(Self {
 			readme: readme.then(|| crate::readme::Pager::new(GRID.width)),
-			app: app::start(false, Zeroizing::new(String::with_capacity(SECRET_CAP))),
+			app: app::try_start(false, Zeroizing::new(String::with_capacity(SECRET_CAP)))?,
 			terminal: Terminal::new(FrameBackend::default())?,
 			canvas: Canvas::new(&viewport).map_err(anyhow::Error::msg)?,
 			viewport,
@@ -693,12 +693,7 @@ mod tests {
 			let (pixels, stride) = canvas.pixels().map_err(anyhow::Error::msg)?;
 			assert_eq!(pixels.len(), stride * usize::from(size.height));
 			let row_end = (f64::from(CELL_HEIGHT) * viewport.scale) as usize * stride;
-			let ink = pixels[..row_end]
-				.as_chunks::<4>()
-				.0
-				.iter()
-				.filter(|pixel| u32::from_ne_bytes(**pixel) & 0x00ff_ffff != 0)
-				.count();
+			let ink = pixels[..row_end].as_chunks::<4>().0.iter().filter(|pixel| u32::from_ne_bytes(**pixel) & 0x00ff_ffff != 0).count();
 			assert!(ink > previous_ink, "Thai glyphs should gain pixels as the window grows");
 			previous_ink = ink;
 		}
